@@ -17,9 +17,18 @@ importers:
 
   apps/web:
     dependencies:
+      '@arkiv-network/sdk':
+        specifier: 1.0.1
+        version: 1.0.1(typescript@5.9.3)(viem@2.57.16(typescript@5.9.3)(zod@4.6.7))
+      '@arkivzk/crypto':
+        specifier: workspace:*
+        version: link:../../packages/crypto
       '@arkivzk/sdk':
         specifier: workspace:*
         version: link:../../packages/sdk
+      '@arkivzk/swarm':
+        specifier: workspace:*
+        version: link:../../packages/swarm
       highlight.js:
         specifier: ^11.12.0
         version: 11.12.0
@@ -44,6 +53,9 @@ importers:
       remark-gfm:
         specifier: ^4
         version: 4.0.1(supports-color@7.2.0)
+      viem:
+        specifier: ^2.57.0
+        version: 2.57.16(typescript@5.9.3)(zod@4.6.7)
     devDependencies:
       '@tailwindcss/turbopack':
         specifier: ^4
@@ -3479,7 +3491,7 @@ snapshots:
 
   '@scure/bip32@1.7.0':
     dependencies:
-      '@noble/curves': 1.9.1
+      '@noble/curves': 1.9.7
       '@noble/hashes': 1.8.0
       '@scure/base': 1.2.6
 

@@ -4,4 +4,4 @@ packages:
   - "archive"
   - "apps/*"
 allowBuilds:
-  msgpackr-extract: set this to true or false
+  msgpackr-extract: false
