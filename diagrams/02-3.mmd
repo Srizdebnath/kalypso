@@ -1,0 +1,13 @@
+flowchart TB
+    ROOT["User Root Key URK<br/>never stored whole: Shamir / threshold t-of-n"]
+    ROOT --> EPOCH1["Epoch Key EK_2026_11<br/>HKDF(URK, epoch)"]
+    ROOT --> EPOCH2["Epoch Key EK_2026_12"]
+    EPOCH1 --> COLL1["Collection Key<br/>per schema e.g. medical"]
+    EPOCH1 --> COLL2["Collection Key<br/>chat"]
+    COLL1 --> DEK1["DEK record #1<br/>random 256-bit"]
+    COLL1 --> DEK2["DEK record #2"]
+    COLL2 --> DEK3["DEK record #3"]
+    ROOT --> BIX["Blind-index key<br/>HMAC tags for search"]
+
+    classDef shred fill:#ffdddd,stroke:#c00;
+    class DEK1,COLL1,ROOT shred;

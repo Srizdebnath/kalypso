@@ -1,0 +1,12 @@
+flowchart LR
+    subgraph D1["Day 1 - Nov 7"]
+        a1[Repo setup + Arkiv first write] --> a2[crypto: AES-GCM, HKDF, padding, Shamir, ML-KEM] --> a3[put/get with zk.record schema]
+    end
+    subgraph D2["Day 2 - Nov 8"]
+        b1[Noir range circuit + Poseidon commit] --> b2[prove/verify + zk.proof entity] --> b3[guardian service RAM-only]
+    end
+    subgraph D3["Day 3 - Nov 9"]
+        c1[shred protocol + receipt entity] --> c2[demo UI + archive node view] --> c3[README, video, submit]
+    end
+    a3 --> b1
+    b3 --> c1

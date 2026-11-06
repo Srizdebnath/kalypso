@@ -1,0 +1,6 @@
+flowchart LR
+    L1["Level 1: record<br/>destroy DEK + salt + ephemeral key"]
+    L2["Level 2: collection<br/>destroy collection key"]
+    L3["Level 3: epoch<br/>destroy epoch key"]
+    L4["Level 4: account<br/>destroy root shares + BIX keys"]
+    L1 --> L2 --> L3 --> L4

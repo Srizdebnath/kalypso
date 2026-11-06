@@ -1,0 +1,6 @@
+flowchart LR
+    W[put: ct + C] --> P[prove: pi over C]
+    P --> V[verify: anyone]
+    W --> S[shred: kill DEK + salt]
+    S --> A[accumulator: add keyId]
+    A --> NS["not_shredded proof fails<br/>verifiers auto-reject old proofs"]

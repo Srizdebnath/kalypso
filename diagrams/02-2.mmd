@@ -1,0 +1,23 @@
+flowchart LR
+    subgraph DEVICE["User device (trusted)"]
+        PT[Plaintext]
+        DEK[Data key DEK]
+        SALT[Commitment salt]
+    end
+
+    subgraph CUST["Key custodians (threshold)"]
+        S1[Share 1: device]
+        S2[Share 2: passkey / HW]
+        S3[Share 3..n: guardian nodes]
+    end
+
+    subgraph ARKIV["Arkiv (PUBLIC, forever in history)"]
+        E1["zk.record entity<br/>bytes: ciphertext (padded)<br/>bytes: commitment C = Poseidon(fields, salt)<br/>bytes: key envelope id<br/>attr: schemaId, epoch, blindTag"]
+        E2["zk.proof entity<br/>bytes: proof<br/>attr: recordKey, circuitId, vkHash"]
+        E3["zk.receipt entity<br/>shred receipt: signatures of custodians"]
+    end
+
+    PT -- encrypt with DEK --> E1
+    PT -- commit --> E1
+    DEK -- wrapped by KEK --> CUST
+    PT -. witness .-> E2

@@ -1,0 +1,13 @@
+stateDiagram-v2
+    [*] --> Encrypted: put()
+    Encrypted --> Proven: prove()
+    Proven --> Proven: more proofs
+    Encrypted --> Rotated: rotate epoch / re-wrap DEK
+    Proven --> Rotated
+    Rotated --> Encrypted
+    Encrypted --> Shredded: shred()
+    Proven --> Shredded: shred()
+    Rotated --> Shredded: shred()
+    Encrypted --> Expired: Arkiv expiry
+    Expired --> Shredded: auto-shred key on expiry
+    Shredded --> [*]: receipt on Arkiv

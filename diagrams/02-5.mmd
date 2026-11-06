@@ -1,0 +1,11 @@
+sequenceDiagram
+    participant VR as Verifier (dApp, DAO, employer)
+    participant A as Arkiv
+    participant Z as arkivzk verifier (WASM)
+
+    VR->>A: query zk.proof where recordKey = X
+    A-->>VR: proof, vkHash, circuitId
+    VR->>A: get zk.record X (commitment C)
+    VR->>Z: verify(proof, publicInputs=[C, threshold], vk)
+    Z-->>VR: true / false
+    Note over VR: learns only "age>=18" is true, nothing else

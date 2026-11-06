@@ -1,0 +1,25 @@
+sequenceDiagram
+    autonumber
+    participant U as User
+    participant L as arkivzk (client)
+    participant G1 as Guardian 1
+    participant G2 as Guardian 2
+    participant A as Arkiv
+
+    U->>L: shred(target, level)
+    L->>L: resolve keyIds + entityKeys from vault index
+    L->>L: build ShredRequest {keyIds, nonce, ts} signed by user root identity
+    par destroy shares
+        L->>G1: ShredRequest
+        G1->>G1: zeroize, drop from RAM / TEE sealed store
+        G1-->>L: Attestation1 = sig(keyIds, nonce, "destroyed")
+    and
+        L->>G2: ShredRequest
+        G2->>G2: zeroize
+        G2-->>L: Attestation2
+    end
+    L->>L: zeroize local share, DEK cache, salt, ephemeral key
+    L->>A: deleteEntity(records + proofs + blind tags)
+    L->>A: createEntity arkivzk.receipt.v1 {keyIds hash, attestations, entityKeys}
+    A-->>L: tx receipt
+    L-->>U: ShredReceipt (verifiable by anyone)

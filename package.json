@@ -1,0 +1,11 @@
+{
+  "name": "arkivzk-monorepo",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "circuits": "node scripts/build-circuits.mjs",
+    "build": "pnpm --filter @arkivzk/crypto --filter @arkivzk/zk --filter @arkivzk/core --filter @arkivzk/vault --filter @arkivzk/shred --filter @arkivzk/sdk run build",
+    "test": "pnpm -r --filter './packages/*' test"
+  },
+  "devDependencies": { "typescript": "^5.9.0", "@types/node": "^24" }
+}

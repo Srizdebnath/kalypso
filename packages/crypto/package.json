@@ -1,0 +1,17 @@
+{
+  "name": "@arkivzk/crypto",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": { ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" } },
+  "files": ["dist"],
+  "scripts": { "build": "tsc -p .", "test": "node --test dist/*.test.js" },
+  "dependencies": {
+    "@noble/ciphers": "^2.0.0",
+    "@noble/curves": "^2.0.0",
+    "@noble/hashes": "^2.0.0",
+    "@noble/post-quantum": "^0.7.1"
+  },
+  "devDependencies": { "typescript": "^5.9.0", "@types/node": "^24" }
+}

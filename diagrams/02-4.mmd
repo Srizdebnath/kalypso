@@ -1,0 +1,24 @@
+sequenceDiagram
+    autonumber
+    participant U as User app
+    participant S as arkivzk sdk
+    participant V as vault
+    participant C as custodians t-of-n
+    participant A as Arkiv
+
+    U->>S: put(schema, record, prove=[age>=18])
+    S->>S: validate + pad to size bucket
+    S->>V: newDEK(collection, epoch)
+    V->>C: wrap DEK with hybrid KEM (ML-KEM-768 + X25519)
+    C-->>V: envelope ids
+    S->>S: ct = AES-256-GCM(DEK, padded, aad=schemaId|epoch)
+    S->>S: C = Poseidon(fields, salt)
+    S->>S: blindTag = HMAC(BIX, field value) (optional)
+    S->>S: ephemeral signer key (unlinkable owner)
+    S->>A: createEntity zk.record {ct, C, envId, blindTag}
+    A-->>S: entityKey + receipt
+    opt prove requested
+        S->>S: Noir prove: C opens to fields AND age>=18
+        S->>A: createEntity zk.proof {proof, recordKey, vkHash}
+    end
+    S-->>U: entityKey

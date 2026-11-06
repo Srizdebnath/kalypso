@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.next/
+target/
+.env
+.env.local
+*.local
+archive-data/
+guardian-data/

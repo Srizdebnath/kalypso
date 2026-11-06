@@ -1,0 +1,6 @@
+flowchart TB
+    DEK[DEK] --> WRAP["wrap: hybrid KEM<br/>ML-KEM-768 + X25519"]
+    WRAP --> SSS["split KEK: Shamir 2-of-3 (MVP) / 3-of-5"]
+    SSS --> D1["Share A: user device<br/>IndexedDB, non-extractable WebCrypto key"]
+    SSS --> D2["Share B: passkey / PRF extension<br/>or hardware key"]
+    SSS --> D3["Share C: guardian node(s)<br/>RAM-only or TEE, no backups"]

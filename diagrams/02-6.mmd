@@ -1,0 +1,18 @@
+sequenceDiagram
+    autonumber
+    participant U as User
+    participant S as arkivzk shred
+    participant C as custodians t-of-n
+    participant A as Arkiv
+
+    U->>S: shred(entityKey | collection | account)
+    S->>S: compute target key ids from hierarchy
+    S->>C: DESTROY(keyIds, nonce) signed by user
+    C->>C: zeroize shares (memory, disk, backups queue)
+    C-->>S: signed destruction attestation each
+    S->>A: deleteEntity(record), deleteEntity(proofs)
+    S->>A: overwrite blind index tags (if any) then delete
+    S->>A: createEntity zk.receipt {attestations, keyIds, time}
+    S->>S: local zeroize DEK cache, salts
+    S-->>U: ShredReceipt (verifiable)
+    Note over A: old nodes still have ciphertext,<br/>but no key exists anywhere -> noise

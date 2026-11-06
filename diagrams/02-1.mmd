@@ -1,0 +1,35 @@
+flowchart TB
+    subgraph APP["Your dApp / backend"]
+        A1[App code]
+    end
+
+    subgraph ARKIVZK["arkivzk (npm workspace)"]
+        SDK["@arkivzk/sdk<br/>high level API: put / get / prove / verify / shred"]
+        CORE["@arkivzk/core<br/>schemas, envelope format, padding, ephemeral signers"]
+        CRYPTO["@arkivzk/crypto<br/>AES-256-GCM, HKDF, X25519 + ML-KEM-768, Poseidon"]
+        ZK["@arkivzk/zk<br/>Noir circuits + prover/verifier wrappers"]
+        VAULT["@arkivzk/vault<br/>key hierarchy, threshold shares, key rotation"]
+        SHRED["@arkivzk/shred<br/>shred protocol, receipts, tombstones, audit"]
+        IDX["@arkivzk/index<br/>blind indexes (HMAC tags), private query helpers"]
+    end
+
+    subgraph EXT["External"]
+        ARK["@arkiv-network/sdk<br/>Arkiv DB-Chain (Rabdi)"]
+        KC["Key custodians<br/>t-of-n: user device, passkey, guardian nodes"]
+        NOIR["Noir + Barretenberg (WASM)"]
+    end
+
+    A1 --> SDK
+    SDK --> CORE
+    SDK --> ZK
+    SDK --> SHRED
+    SDK --> IDX
+    CORE --> CRYPTO
+    ZK --> CRYPTO
+    ZK --> NOIR
+    SHRED --> VAULT
+    VAULT --> CRYPTO
+    IDX --> VAULT
+    CORE --> ARK
+    SHRED --> ARK
+    VAULT --> KC
