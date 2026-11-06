@@ -3,11 +3,13 @@
   "version": "0.1.0",
   "type": "module",
   "main": "dist/index.js",
-  "types": "dist/index.d.ts",
-  "files": ["dist"],
+  "types": "src/index.ts",
+  "exports": { ".": { "types": "./src/index.ts", "default": "./dist/index.js" } },
+  "files": ["dist", "src"],
   "scripts": { "build": "tsc -p .", "test": "node --test dist/*.test.js" },
   "dependencies": {
+    "@arkivzk/crypto": "workspace:*",
     "@arkiv-network/sdk": "1.0.1",
-    "viem": "^2"
+    "viem": "^2.57.0"
   }
 }

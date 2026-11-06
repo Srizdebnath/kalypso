@@ -1,0 +1,16 @@
+{
+  "name": "@arkivzk/guardian",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p .",
+    "start": "node dist/server.js",
+    "start:g1": "GUARDIAN_NAME=guardian-1 PORT=7101 node dist/server.js",
+    "start:g2": "GUARDIAN_NAME=guardian-2 PORT=7102 node dist/server.js"
+  },
+  "dependencies": {
+    "@arkivzk/crypto": "workspace:*",
+    "@arkivzk/core": "workspace:*"
+  }
+}
