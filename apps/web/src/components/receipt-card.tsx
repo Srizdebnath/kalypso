@@ -61,7 +61,7 @@ export function ReceiptCard({ receipt, showLink = true }: { receipt: ShredReceip
         </div>
         <dl>
           <KV k="Receipt entity"><HashLine value={receipt.receiptKey} /></KV>
-          <KV k="Tx hash"><HashLine value={receipt.txHash} /></KV>
+          {receipt.txHash && receipt.txHash !== "0x" && <KV k="Tx hash"><HashLine value={receipt.txHash} /></KV>}
         </dl>
 
         <div>

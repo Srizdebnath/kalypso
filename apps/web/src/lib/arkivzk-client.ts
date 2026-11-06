@@ -208,7 +208,8 @@ async function buildZk(address: Hex, vaultOverride?: import("@arkivzk/sdk").Vaul
     write: { chain: await chain(), rpc: rpc as never, publicClient: pc as never, provider: injected(), account: address },
     blobs,
     signer: mode,
-    relayer: mode === "ephemeral" ? s.httpRelayer("/api/relayer") : undefined,
+    // always wired: records written in ephemeral mode still need the relayer for shred/renew after switching back to wallet mode
+    relayer: s.httpRelayer("/api/relayer"),
   });
 }
 

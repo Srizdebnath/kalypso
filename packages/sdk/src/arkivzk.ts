@@ -105,7 +105,8 @@ export class ArkivZK {
     if (signer === "wallet") return this.cfg.write;
     if (!signerKey) throw new Error("this record's signer key is gone (shredded): its Arkiv entity can only expire");
     const acct = privateKeyToAccount(signerKey);
-    const relayer = this.cfg.relayer!;
+    const relayer = this.cfg.relayer;
+    if (!relayer) throw new Error("records written by a one-time signer need the relayer (config.relayer) for gas, also in wallet mode");
     return {
       ...this.cfg.write,
       provider: localKeyProvider(signerKey, this.cfg.write.chain, this.cfg.write.rpc),

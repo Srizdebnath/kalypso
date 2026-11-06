@@ -53,7 +53,8 @@ function decodeOps(input: Hex, createdKeys: string[]): DecodedOp[] {
           op: "create", entityKey: createdKeys[ci++], expiresAt: c.expiresAt.toString(),
           attributes: c.attributes.map((a) => {
             const name = hexToString(a.name, { size: 32 }).replace(/\0+$/, "");
-            const type = TYPE_NAMES[a.typeId] ?? String(a.typeId);
+            // high bit (0x80) is the INDEXED flag, not part of the type
+            const type = TYPE_NAMES[a.typeId & 0x7f] ?? String(a.typeId);
             let value: string = a.value;
             if (type === "str") { try { value = hexToString(a.value); } catch { /* keep hex */ } }
             return { name, type, value };
@@ -116,6 +117,35 @@ async function loop() {
   }
 }
 
+/** Older captures stored the raw typeId (with the 0x80 INDEXED bit); normalize on read. */
+function normalize(c: Capture): Capture {
+  return {
+    ...c,
+    ops: c.ops.map((o) => o.op !== "create" ? o : {
+      ...o,
+      attributes: o.attributes.map((a) => {
+        const n = Number(a.type);
+        if (!Number.isInteger(n)) return a;
+        const type = TYPE_NAMES[n & 0x7f] ?? a.type;
+        let value = a.value;
+        if (type === "str" && /^0x[0-9a-f]*$/i.test(value)) { try { value = hexToString(value as Hex); } catch { /* keep */ } }
+        return { ...a, type, value };
+      }),
+    }),
+  } as Capture;
+}
+const appOf = new Map<string, string>(); // file -> "app" attribute (memo, files are immutable)
+function readCapture(f: string): Capture { return normalize(JSON.parse(fs.readFileSync(path.join(DATA, f), "utf8"))); }
+function captureApp(f: string) {
+  let a = appOf.get(f);
+  if (a === undefined) {
+    const c = readCapture(f);
+    a = c.ops.flatMap((o) => (o.op === "create" ? o.attributes : [])).find((x) => x.name === "app")?.value ?? "";
+    appOf.set(f, a);
+  }
+  return a;
+}
+
 function listCaptures() {
   return fs.readdirSync(DATA).filter((f) => f.endsWith(".json") && f !== "state.json").sort().reverse();
 }
@@ -123,10 +153,12 @@ function listCaptures() {
 http.createServer((req, res) => {
   res.setHeader("content-type", "application/json");
   res.setHeader("Access-Control-Allow-Origin", "*");
-  const url = (req.url ?? "").split("?")[0];
+  const [url, qs] = (req.url ?? "").split("?");
   if (url === "/captures") {
-    const items = listCaptures().slice(0, 200).map((f) => {
-      const c: Capture = JSON.parse(fs.readFileSync(path.join(DATA, f), "utf8"));
+    const app = new URLSearchParams(qs ?? "").get("app");
+    const files = app ? listCaptures().filter((f) => captureApp(f) === app) : listCaptures();
+    const items = files.slice(0, 200).map((f) => {
+      const c = readCapture(f);
       const { input, ...rest } = c;
       return { ...rest, ops: c.ops.map((o) => (o.op === "create" ? { ...o, attributes: o.attributes.map((a) => ({ ...a, value: a.value.length > 80 ? a.value.slice(0, 80) + "…" : a.value })) } : o)) };
     });
@@ -136,7 +168,7 @@ http.createServer((req, res) => {
   if (m) {
     const f = listCaptures().find((x) => x.endsWith(`-${m[1].toLowerCase()}.json`) || x.endsWith(`-${m[1]}.json`));
     if (!f) return void res.writeHead(404).end(JSON.stringify({ error: "not captured" }));
-    return void res.end(fs.readFileSync(path.join(DATA, f)));
+    return void res.end(JSON.stringify(readCapture(f)));
   }
   res.writeHead(404).end(JSON.stringify({ error: "not found" }));
 }).listen(PORT, async () => {
