@@ -255,6 +255,46 @@ Live results (`node packages/sdk/query-encrypted.mjs`, docs/query-bench.json):
 
 Full comparison against Arkiv's native query language, and what each index leaks: [07 §5](07-performance.md#5-queries-what-arkiv-does-what-it-cant-do-on-encrypted-data-and-what-arkivzk-adds).
 
+## 8f. Relational layer: atomic inserts, 1:N, M:N, cascade
+
+```ts
+// one atomic transaction: patient, doctor, a visit linking both (M:N junction), a lab result (1:N)
+const [patient, doctor, visit, lab] = await zk.putMany([
+  { schemaId: "patient.v1", values: { age: 30 }, retentionSeconds: 2 * HOUR },
+  { schemaId: "doctor.v1",  values: { speciality: "cardio" }, retentionSeconds: 2 * HOUR },
+  { schemaId: "visit.v1",   values: { day: 12, fee: 40 }, retentionSeconds: 2 * HOUR,
+    parents: [{ key: { index: 0 }, relation: "visit" }, { key: { index: 1 }, relation: "visit" }] },
+  { schemaId: "lab.v1",     values: { hb: 13 }, retentionSeconds: 24 * HOUR,          // clamped to the patient's expiry
+    parents: [{ key: { index: 0 }, relation: "lab" }] },
+]);
+
+await zk.childrenOf(patient.entityKey, "lab");               // 1:N   -> [lab]
+await zk.childrenOfMany([p1, p2, p3, p4, p5]);               // batched JOIN: 1 query instead of 5
+await zk.parentsOf(lab.entityKey);                           // belongsTo, no query
+await zk.linked(patient.entityKey, "visit");                 // M:N   -> doctor (via the visit junction)
+await zk.orphans();                                          // live records whose parent is gone
+await new LeaseManager(zk).renew([patient.entityKey], 3600, step, { cascade: true }); // whole tree, 1 tx
+await zk.shred([patient.entityKey], onStep, { cascade: true });                       // whole tree, 1 tx
+```
+
+| Method | Time | Space | Arkiv |
+|---|---|---|---|
+| `putMany(rows)` | O(rows) crypto | O(rows) | **1 tx** (≤ 10 rows) |
+| `childrenOf` | O(1) + O(k) | O(k) | 1 query (+ pages) |
+| `childrenOfMany(P)` | O(P) HMACs + O(k) | O(P + k) | ⌈P/9⌉ queries |
+| `parentsOf` | O(1) | O(1) | 0 |
+| `linked` | O(k) | O(k) | 1 query |
+| `orphans` | O(R) | O(R) | ⌈P/20⌉ queries |
+| cascade shred / renew | O(tree) | O(tree) | depth queries + 1 tx per owner |
+
+Rules arkivzk enforces, because Arkiv leaves them to apps:
+- the parent must be live;
+- a child never outlives its parents;
+- at most 2 parents per row;
+- relations survive device loss (they are inside the ciphertext).
+
+Full table and live numbers: [07 §6](07-performance.md#6-relational-layer-on-encrypted-data).
+
 ## 9. Recovery (lost device)
 
 ```ts

@@ -47,6 +47,7 @@ export function ShredView() {
   const [receipt, setReceipt] = useState<ShredReceiptView | null>(null);
   /** Shred finished but returned no receipt: keys destroyed, nothing on Arkiv to clean. */
   const [keysOnly, setKeysOnly] = useState(false);
+  const [cascade, setCascade] = useState(true);
 
   // One entry per month, summing collections (one per schema) in that epoch.
   const epochs = useMemo(() => {
@@ -67,6 +68,18 @@ export function ShredView() {
   const shreddable = (records.data ?? []).filter((r) => r.status !== "shredded" && !r.pendingShred);
   const pending = (records.data ?? []).filter((r) => r.pendingShred);
   const chosen = shreddable.filter((r) => selected.has(r.entityKey)).map((r) => r.entityKey);
+  // live records (any depth) that point at a chosen record through a blind foreign key
+  const descendants = useMemo(() => {
+    const all = records.data ?? [];
+    const seen = new Set(chosen);
+    let frontier = [...chosen];
+    for (let d = 0; d < 8 && frontier.length; d++) {
+      const next = all.filter((r) => r.status === "live" && !seen.has(r.entityKey) && r.parents.some((p) => frontier.includes(p.entityKey as `0x${string}`))).map((r) => r.entityKey);
+      next.forEach((k) => seen.add(k));
+      frontier = next;
+    }
+    return [...seen].filter((k) => !chosen.includes(k));
+  }, [records.data, chosen]);
 
   function toggle(k: string) {
     setSelected((prev) => {
@@ -102,7 +115,7 @@ export function ShredView() {
   function onConfirmed(c: NonNullable<Confirm>) {
     if (c.level === "records") {
       const keys = chosen;
-      return execute((cb) => shredRecords(keys, cb));
+      return execute((cb) => shredRecords(keys, cb, { cascade: cascade && descendants.length > 0 }));
     }
     if (c.level === "epoch" && c.epoch) {
       const e = c.epoch;
@@ -278,6 +291,15 @@ export function ShredView() {
                   );
                 })}
               </ul>
+              {descendants.length > 0 && (
+                <label className="mt-4 flex cursor-pointer items-start gap-2 border-[3px] border-ink bg-paper p-3 text-sm">
+                  <input type="checkbox" className="mt-0.5 h-5 w-5 accent-black" checked={cascade} onChange={() => setCascade((v) => !v)} disabled={running} />
+                  <span>
+                    <strong>Cascade:</strong> also shred {descendants.length} linked child record{descendants.length === 1 ? "" : "s"} (found through blind
+                    foreign keys). Without it they stay live and become orphans.
+                  </span>
+                </label>
+              )}
               <Button
                 tone="danger"
                 size="lg"
@@ -332,7 +354,7 @@ export function ShredView() {
       {confirm?.level === "records" && (
         <ConfirmDialog
           word={CONFIRM_WORD}
-          title={`Destroy ${chosen.length} record${chosen.length === 1 ? "" : "s"} forever?`}
+          title={`Destroy ${chosen.length + (cascade ? descendants.length : 0)} record${chosen.length + (cascade ? descendants.length : 0) === 1 ? "" : "s"} forever?`}
           confirmLabel="Shred now"
           onCancel={() => setConfirm(null)}
           onConfirm={() => onConfirmed(confirm)}

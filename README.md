@@ -34,7 +34,8 @@ or archive indexer that synced the old blocks still holds the bytes forever.
 | Ephemeral per-record signers + gas relayer (records unlinkable to your wallet) | ✅ implemented |
 | Two-level keys: collection (schema × month) key + record key; epoch & account shred | ✅ implemented |
 | Blind-index exact-match search on encrypted fields | ✅ implemented |
-| Range search, COUNT, JOIN (blind foreign key) and cascade shred on encrypted fields | ✅ implemented, checked live against decrypt-everything ([07 §5](docs/07-performance.md#5-queries-what-arkiv-does-what-it-cant-do-on-encrypted-data-and-what-arkivzk-adds)) |
+| Range search and COUNT on encrypted fields | ✅ implemented, checked live against decrypt-everything ([07 §5](docs/07-performance.md#5-queries-what-arkiv-does-what-it-cant-do-on-encrypted-data-and-what-arkivzk-adds)) |
+| Relational layer: atomic multi-insert, 1:N + M:N blind foreign keys, batched JOIN, orphans, cascade shred/renew, relations restored on recovery | ✅ implemented, checked live ([07 §6](docs/07-performance.md#6-relational-layer-on-encrypted-data)) |
 | TEE-attested guardians | ❌ not implemented: needs SGX/TDX/Nitro hardware we don't have. Guardians are trusted via signatures + 2-of-3 threshold only. |
 
 ## Live on Arkiv Rabdi (chain 7794095)
@@ -69,8 +70,9 @@ pc.select({ $key: true, $owner: true, recordKey: true, level: true, shreddedAt: 
 4. [docs/04-crypto-shredding.md](docs/04-crypto-shredding.md) – the deletion design, key hierarchy, shred receipts
 5. [docs/05-mvp-plan.md](docs/05-mvp-plan.md) – what we build first given limited time
 6. [docs/06-sdk-reference.md](docs/06-sdk-reference.md) – every SDK feature with code
-7. [docs/07-performance.md](docs/07-performance.md) – complexity, measurements, before vs after
-8. [diagrams/](diagrams/) – standalone `.mmd` files (paste into mermaid.live)
+7. [docs/07-performance.md](docs/07-performance.md) – complexity, measurements, before vs after, encrypted queries (§5), relational layer (§6)
+8. [docs/08-design-faq.md](docs/08-design-faq.md) – why encrypted queries and relations live on top of Arkiv, what each index leaks, what we do not claim
+9. [diagrams/](diagrams/) – standalone `.mmd` files (paste into mermaid.live)
 
 ## One-line API (target)
 

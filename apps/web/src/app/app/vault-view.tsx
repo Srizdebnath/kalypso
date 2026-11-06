@@ -8,6 +8,7 @@ import {
   listRecords,
   putRecord,
   type DecryptedRecord,
+  type LocalRecord,
   type PutResult,
 } from "@/lib/arkivzk-client";
 import { downloadBlob, errorMessage, formatBytes } from "@/lib/format";
@@ -40,7 +41,7 @@ export function VaultView() {
 
   return (
     <div className="grid gap-8 lg:grid-cols-[minmax(0,26rem)_1fr]">
-      <CreateRecord onCreated={records.reload} />
+      <CreateRecord onCreated={records.reload} records={records.data ?? []} />
       <div className="min-w-0 space-y-8">
         <RecordsPanel
           state={records}
@@ -57,13 +58,17 @@ export function VaultView() {
 
 /* ------------------------------------------------------------------ create */
 
-function CreateRecord({ onCreated }: { onCreated: () => void }) {
+function CreateRecord({ onCreated, records }: { onCreated: () => void; records: LocalRecord[] }) {
   const [age, setAge] = useState("");
   const [country, setCountry] = useState("");
   const [bloodGroup, setBloodGroup] = useState(BLOOD_GROUPS[0]);
   const [file, setFile] = useState<File | null>(null);
   const [retentionSeconds, setRetentionSeconds] = useState(7 * DAY);
   const [searchable, setSearchable] = useState<string[]>([]);
+  const [rangeAge, setRangeAge] = useState(false);
+  const [parent, setParent] = useState("");
+  const [relation, setRelation] = useState("child");
+  const liveRecords = records.filter((r) => r.status === "live");
   const [running, setRunning] = useState(false);
   const [steps, setSteps] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -90,6 +95,8 @@ function CreateRecord({ onCreated }: { onCreated: () => void }) {
           file: file ?? undefined,
           retentionSeconds,
           ...(searchable.length > 0 && { searchable }),
+          ...(rangeAge && { rangeField: "age" }),
+          ...(parent && { parent, relation }),
         },
         (s) => setSteps((prev) => [...prev, s]),
       );
@@ -108,6 +115,9 @@ function CreateRecord({ onCreated }: { onCreated: () => void }) {
     setBloodGroup(BLOOD_GROUPS[0]);
     setFile(null);
     setSearchable([]);
+    setRangeAge(false);
+    setParent("");
+    setRelation("child");
     if (fileInput.current) fileInput.current.value = "";
     setSteps([]);
     setResult(null);
@@ -229,6 +239,37 @@ function CreateRecord({ onCreated }: { onCreated: () => void }) {
           <p className="mt-1 text-xs opacity-70">
             Searchable fields get a blind-index tag on Arkiv: you can find records by exact value;
             others see random tags. Max {MAX_SEARCHABLE}.
+          </p>
+        </fieldset>
+
+        <fieldset>
+          <legend className="nb-label">Range index</legend>
+          <label className={cx("flex cursor-pointer items-center gap-2 border-[3px] border-ink px-3 py-1.5 font-mono text-sm font-bold", rangeAge ? "bg-yellow" : "bg-white")}>
+            <input type="checkbox" checked={rangeAge} disabled={running} onChange={() => setRangeAge((v) => !v)} />
+            age (range + count)
+          </label>
+          <p className="mt-1 text-xs opacity-70">
+            Adds 8 tree tags so you can search and count by age range. Leak: within the same month, records in the same
+            age bucket share a tag (approximate order is visible).
+          </p>
+        </fieldset>
+
+        <fieldset>
+          <legend className="nb-label">Link to a parent record (optional)</legend>
+          <div className="flex flex-wrap gap-2">
+            <select aria-label="Parent record" className="nb-input w-auto min-w-0 flex-1" value={parent} onChange={(e) => setParent(e.target.value)} disabled={running}>
+              <option value="">No parent</option>
+              {liveRecords.map((r) => (
+                <option key={r.entityKey} value={r.entityKey}>
+                  {r.schemaId} · {r.entityKey.slice(0, 10)}…
+                </option>
+              ))}
+            </select>
+            <input aria-label="Relation name" className="nb-input w-28" value={relation} onChange={(e) => setRelation(e.target.value)} disabled={running || !parent} placeholder="child" />
+          </div>
+          <p className="mt-1 text-xs opacity-70">
+            Stored as a blind foreign key (HMAC of the parent). Only you can JOIN them. The child never outlives its parent,
+            and shredding the parent with cascade shreds it too.
           </p>
         </fieldset>
 

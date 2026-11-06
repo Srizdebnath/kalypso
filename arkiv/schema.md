@@ -4,7 +4,7 @@ All entities carry `app = "arkivzk"` (indexed) so anyone can find them. Network:
 
 | Entity (schema tag) | Who owns it | Indexed (queryable) | Stored (bytes / not indexed) | Expires | Flags |
 |---|---|---|---|---|---|
-| `arkivzk.record.v1` | the user's wallet (or a one-time signer) | `app`, `schemaId`, `epoch`, `commitment`, optional blind tags `bix0..2` (equality), `r1..r8` (range tree), `rel` (blind foreign key) | `ct` (AES-256-GCM ciphertext, padded), `envId` (sealed record id), `swarmRef` (optional) | the retention the user picks (5 min demo … 182 days), renewable | `readonly`, no permissionless extension |
+| `arkivzk.record.v1` | the user's wallet (or a one-time signer) | `app`, `schemaId`, `epoch`, `commitment`, optional blind tags `bix0..2` (equality), `r1..r8` (range tree), `rel`/`rel2` (blind foreign keys: 1:N and M:N junction rows) | `ct` (AES-256-GCM ciphertext, padded), `envId` (sealed record id), `swarmRef` (optional) | the retention the user picks (5 min demo … 182 days), renewable | `readonly`, no permissionless extension |
 | `arkivzk.proof.v1` | the user's wallet | `app`, `recordKey`, `circuitId`, `vkHash`, `audience`, `claim` | `statement` (public inputs + label JSON), `proof` (UltraHonk, 14,656 B) | **same block as its record** (never outlives it) | `readonly` |
 | `arkivzk.vk.v1` | first prover | `app`, `circuitId`, `vkHash` | `vk` (3,680 B) | max lifetime; anyone may extend | `readonly`, permissionless extension |
 | `arkivzk.receipt.v1` | the user's wallet | `app`, `recordKey`, `level` | `shreddedAt` (u64), `request` (controller-signed), `attestations` (guardian-signed) | max lifetime; anyone may extend | `readonly`, permissionless extension |
@@ -21,7 +21,7 @@ All entities carry `app = "arkivzk"` (indexed) so anyone can find them. Network:
 | `$key IN (...)` | liveness + expiry of many entities in one query (shred / renew) |
 | `schemaId = s AND (bix0 = t OR bix1 = t OR bix2 = t …)` | exact-match search on an encrypted field |
 | `schemaId = s AND (r3 = t₁ OR r5 = t₂ OR … ≤ 14 terms per month)` | range search / `count()` on an encrypted field |
-| `rel = HMAC(parent)` | JOIN parent → children, cascade shred |
+| `rel = t OR rel2 = t` (≤ 9 parents per query) | JOIN parent → children (batched), M:N via junction rows, cascade shred/renew |
 
 ## What is deliberately NOT on Arkiv
 

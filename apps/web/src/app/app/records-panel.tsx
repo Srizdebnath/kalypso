@@ -7,6 +7,9 @@ import {
   reminderIcsUrl,
   renewRecords,
   searchRecords,
+  searchRange,
+  countRecords,
+  childrenOf,
   type FieldValue,
   type LocalRecord,
 } from "@/lib/arkivzk-client";
@@ -161,6 +164,10 @@ export function RecordsPanel({
                     <Badge tone="pink">one-time signer (unlinkable)</Badge>
                   )}
                   {r.swarmRef && <Badge tone="violet">+ file</Badge>}
+                  {r.rangeField && <Badge tone="white">range: {r.rangeField}</Badge>}
+                  {r.parents.map((p) => (
+                    <Badge key={p.entityKey} tone="violet">↳ {p.relation} of {p.entityKey.slice(0, 8)}…</Badge>
+                  ))}
                   {exp && (
                     <span
                       className={cx(
@@ -194,6 +201,13 @@ export function RecordsPanel({
                 )}
 
                 <div className="mt-3 flex flex-wrap gap-2">
+                  {live && data.some((x) => x.parents.some((p) => p.entityKey === r.entityKey)) && (
+                    <ChildrenButton
+                      parent={r.entityKey}
+                      relations={[...new Set(data.flatMap((x) => x.parents.filter((p) => p.entityKey === r.entityKey).map((p) => p.relation)))]}
+                      onResult={setSearch}
+                    />
+                  )}
                   <Button
                     size="sm"
                     tone="cyan"
@@ -353,7 +367,41 @@ function useNow(intervalMs = 1_000) {
   return now;
 }
 
-type SearchResult = { keys: Set<string>; queries: number; tagsTried: number; label: string };
+type SearchResult = { keys: Set<string>; queries: number; tagsTried: number; label: string; note?: string };
+
+/** JOIN on the blind foreign key: one Arkiv query per relation, results shown as a filtered list. */
+function ChildrenButton({ parent, relations, onResult }: { parent: string; relations: string[]; onResult: (r: SearchResult | null) => void }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  async function run() {
+    setBusy(true);
+    setError(null);
+    try {
+      const keys = new Set<string>();
+      let queries = 0;
+      for (const rel of relations) {
+        const r = await childrenOf(parent, rel);
+        r.keys.forEach((k) => keys.add(k));
+        queries += r.queries;
+      }
+      onResult({ keys, queries, tagsTried: relations.length, label: `children of ${parent.slice(0, 10)}… (${relations.join(", ")})`, note: "JOIN on a blind foreign key" });
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <span className="inline-flex flex-col">
+      <Button size="sm" tone="violet" onClick={run} disabled={busy}>
+        {busy ? "Joining…" : "Children"}
+      </Button>
+      {error && <span className="mt-1 max-w-[14rem] font-mono text-[0.7rem] text-danger">{error}</span>}
+    </span>
+  );
+}
+
+type Mode = "exact" | "range";
 
 function SearchBox({
   schemaId,
@@ -366,27 +414,65 @@ function SearchBox({
   result: SearchResult | null;
   onResult: (r: SearchResult | null) => void;
 }) {
+  const [mode, setMode] = useState<Mode>("exact");
   const [field, setField] = useState(fields[0]?.name ?? "");
   const [value, setValue] = useState("");
+  const [min, setMin] = useState("");
+  const [max, setMax] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const numeric = fields.find((f) => f.name === field)?.numeric ?? false;
+  const [count, setCount] = useState<{ label: string; count: number; queries: number } | null>(null);
+  const numericFields = fields.filter((f) => f.numeric);
+  const activeFields = mode === "range" ? numericFields : fields;
+  const fieldName = activeFields.some((f) => f.name === field) ? field : activeFields[0]?.name ?? "";
+  const numeric = fields.find((f) => f.name === fieldName)?.numeric ?? false;
+
+  function parse(): { where: { eq: FieldValue } | { min: number; max: number }; label: string } | null {
+    if (mode === "exact") {
+      const v = value.trim();
+      if (!v) return null;
+      if (numeric) {
+        const n = Number(v);
+        if (!Number.isFinite(n)) { setError(`${fieldName} must be a number`); return null; }
+        return { where: { eq: n }, label: `${fieldName} = ${v}` };
+      }
+      return { where: { eq: v }, label: `${fieldName} = ${v}` };
+    }
+    const a = Number(min), b = Number(max);
+    if (!Number.isInteger(a) || !Number.isInteger(b) || a < 0 || b > 255 || a > b) { setError("Range bounds must be integers with 0 ≤ min ≤ max ≤ 255"); return null; }
+    return { where: { min: a, max: b }, label: `${fieldName} in [${a}, ${b}]` };
+  }
 
   async function run(e: FormEvent) {
     e.preventDefault();
-    const v = value.trim();
-    if (!v) return;
-    let typed: FieldValue = v;
-    if (numeric) {
-      const n = Number(v);
-      if (!Number.isFinite(n)) return setError(`${field} must be a number`);
-      typed = n;
-    }
-    setBusy(true);
     setError(null);
+    const q = parse();
+    if (!q) return;
+    setBusy(true);
+    setCount(null);
     try {
-      const r = await searchRecords(schemaId, field, typed);
-      onResult({ keys: new Set(r.keys), queries: r.queries, tagsTried: r.tagsTried, label: `${field} = ${v}` });
+      if ("eq" in q.where) {
+        const r = await searchRecords(schemaId, fieldName, q.where.eq);
+        onResult({ keys: new Set(r.keys), queries: r.queries, tagsTried: r.tagsTried, label: q.label });
+      } else {
+        const r = await searchRange(schemaId, fieldName, q.where.min, q.where.max);
+        onResult({ keys: new Set(r.keys), queries: r.queries, tagsTried: r.terms, label: q.label, note: `${r.nodes} tree node${r.nodes === 1 ? "" : "s"} per month` });
+      }
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function runCount() {
+    setError(null);
+    const q = parse();
+    if (!q) return;
+    setBusy(true);
+    try {
+      const r = await countRecords(schemaId, fieldName, q.where);
+      setCount({ label: q.label, count: r.count, queries: r.queries });
     } catch (err) {
       setError(errorMessage(err));
     } finally {
@@ -396,28 +482,51 @@ function SearchBox({
 
   return (
     <div className="nb-border mb-4 bg-white p-3">
+      <div className="mb-2 flex gap-0" role="group" aria-label="Search mode">
+        {(["exact", "range"] as const).map((m) => (
+          <button
+            key={m}
+            type="button"
+            aria-pressed={mode === m}
+            disabled={busy || (m === "range" && numericFields.length === 0)}
+            onClick={() => { setMode(m); setError(null); setCount(null); }}
+            className={cx("border-[3px] border-ink px-3 py-1 font-mono text-xs font-bold", mode === m ? "bg-yellow" : "bg-white hover:bg-paper", m === "range" && "-ml-[3px]")}
+          >
+            {m === "exact" ? "Exact match" : "Range"}
+          </button>
+        ))}
+      </div>
       <form onSubmit={run} className="flex flex-wrap items-end gap-2">
         <div>
           <label className="nb-label" htmlFor="search-field">Search field</label>
-          <select id="search-field" className="nb-input w-auto" value={field} onChange={(e) => setField(e.target.value)} disabled={busy}>
-            {fields.map((f) => (
+          <select id="search-field" className="nb-input w-auto" value={fieldName} onChange={(e) => setField(e.target.value)} disabled={busy}>
+            {activeFields.map((f) => (
               <option key={f.name}>{f.name}</option>
             ))}
           </select>
         </div>
-        <div className="min-w-[8rem] flex-1">
-          <label className="nb-label" htmlFor="search-value">Exact value</label>
-          <input
-            id="search-value"
-            className="nb-input"
-            inputMode={numeric ? "numeric" : undefined}
-            value={value}
-            onChange={(e) => setValue(e.target.value)}
-            disabled={busy}
-          />
-        </div>
-        <Button type="submit" tone="cyan" disabled={busy || !value.trim()}>
-          {busy ? "Searching…" : "Search"}
+        {mode === "exact" ? (
+          <div className="min-w-[8rem] flex-1">
+            <label className="nb-label" htmlFor="search-value">Exact value</label>
+            <input id="search-value" className="nb-input" inputMode={numeric ? "numeric" : undefined} value={value} onChange={(e) => setValue(e.target.value)} disabled={busy} />
+          </div>
+        ) : (
+          <>
+            <div className="w-24">
+              <label className="nb-label" htmlFor="search-min">Min</label>
+              <input id="search-min" className="nb-input" type="number" min={0} max={255} value={min} onChange={(e) => setMin(e.target.value)} disabled={busy} />
+            </div>
+            <div className="w-24">
+              <label className="nb-label" htmlFor="search-max">Max</label>
+              <input id="search-max" className="nb-input" type="number" min={0} max={255} value={max} onChange={(e) => setMax(e.target.value)} disabled={busy} />
+            </div>
+          </>
+        )}
+        <Button type="submit" tone="cyan" disabled={busy || (mode === "exact" ? !value.trim() : min === "" || max === "")}>
+          {busy ? "Working…" : "Search"}
+        </Button>
+        <Button type="button" tone="white" onClick={runCount} disabled={busy || (mode === "exact" ? !value.trim() : min === "" || max === "")}>
+          Count
         </Button>
         {result && (
           <Button type="button" tone="white" onClick={() => onResult(null)} disabled={busy}>
@@ -426,12 +535,21 @@ function SearchBox({
         )}
       </form>
       <p className="mt-2 text-xs opacity-70">
-        Blind-index search: only finds records where this field was marked searchable when created.
+        {mode === "exact"
+          ? "Blind-index search: only finds records where this field was marked searchable when created."
+          : "Range search: only finds records created with this field range-indexed (0–255). Arkiv sees HMAC tags, never the value or your bounds."}{" "}
+        Count asks Arkiv to count matching tags: no records are downloaded.
       </p>
       {result && (
         <p className="mt-2 font-mono text-xs font-bold">
           {result.keys.size} match{result.keys.size === 1 ? "" : "es"} · {result.queries} quer
-          {result.queries === 1 ? "y" : "ies"}, {result.tagsTried} tag{result.tagsTried === 1 ? "" : "s"} tried
+          {result.queries === 1 ? "y" : "ies"}, {result.tagsTried} {result.note?.startsWith("JOIN") ? "relation" : "tag"}{result.tagsTried === 1 ? "" : "s"}
+          {result.note ? ` · ${result.note}` : ""}
+        </p>
+      )}
+      {count && (
+        <p className="mt-2 border-2 border-ink bg-lime px-2 py-1 font-mono text-xs font-bold" data-testid="count-result">
+          COUNT({count.label}) = {count.count} · {count.queries} count quer{count.queries === 1 ? "y" : "ies"}, 0 rows downloaded
         </p>
       )}
       {error && (

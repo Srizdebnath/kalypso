@@ -20,6 +20,10 @@ export type LocalRecord = {
   epoch: string;
   /** who owns the entity on Arkiv: the user's wallet, or a one-time key funded by the relayer */
   signer: "wallet" | "ephemeral";
+  /** blind foreign keys to parent records */
+  parents: { entityKey: string; relation: string }[];
+  /** field that is range-searchable, if any */
+  rangeField?: string;
 };
 export type SignerMode = "wallet" | "ephemeral";
 export type CollectionView = { collectionId: string; schemaId: string; epoch: string; status: "live" | "shredded"; records: number };
@@ -30,6 +34,11 @@ export type PutInput = {
   retentionSeconds: number;
   /** up to 3 field names made exact-match searchable (blind index) */
   searchable?: string[];
+  /** one integer field (0..255) made range-searchable and countable */
+  rangeField?: string;
+  /** entity key of a live parent record (blind foreign key) and the relation name */
+  parent?: string;
+  relation?: string;
 };
 export type PutResult = {
   entityKey: `0x${string}`;
@@ -258,6 +267,8 @@ function toLocal(r: VaultRecord): LocalRecord {
     expiresAtMs: r.expiresAtMs || null, status: r.status, swarmRef: r.swarmRef, fieldNames: r.fields,
     pendingShred: !!r.pendingShred,
     epoch: r.epoch, signer: r.signer,
+    parents: (r.parents ?? []).map((p) => ({ entityKey: p.entityKey, relation: p.relation })),
+    rangeField: r.rangeField,
   };
 }
 
@@ -299,7 +310,11 @@ export async function putRecord(input: PutInput, onStep?: (s: string) => void): 
   const attachment = input.file
     ? { name: input.file.name, type: input.file.type || "application/octet-stream", bytes: new Uint8Array(await input.file.arrayBuffer()) }
     : undefined;
-  const r = await zk.put({ schemaId: input.schemaId, values: input.values, retentionSeconds: input.retentionSeconds, attachment, searchable: input.searchable }, onStep);
+  const r = await zk.put({
+    schemaId: input.schemaId, values: input.values, retentionSeconds: input.retentionSeconds, attachment, searchable: input.searchable,
+    rangeField: input.rangeField,
+    ...(input.parent ? { parents: [{ key: input.parent, relation: input.relation?.trim() || "child" }] } : {}),
+  }, onStep);
   return { entityKey: r.entityKey, txHash: r.txHash, expiresAtBlock: r.expiresAtBlock.toString(), commitment: r.commitment, swarmRef: r.swarmRef };
 }
 
@@ -349,11 +364,11 @@ async function finishReceipt(zk: ArkivZKType, res: { txHashes: Hex[]; receipts: 
   return receiptView(r, res.txHashes[0], res.deleted);
 }
 
-export async function shredRecords(entityKeys: string[], onStep: (steps: ShredStep[]) => void): Promise<ShredReceiptView> {
+export async function shredRecords(entityKeys: string[], onStep: (steps: ShredStep[]) => void, opts: { cascade?: boolean } = {}): Promise<ShredReceiptView> {
   const { zk } = await requireSession();
   const update = stepTracker(onStep);
   try {
-    const res = await zk.shred(entityKeys, update);
+    const res = await zk.shred(entityKeys, update, opts);
     return await finishReceipt(zk, res);
   } catch (e) {
     update("arkiv", "error", msg(e));
@@ -398,6 +413,30 @@ export async function listCollections(): Promise<CollectionView[]> {
 export async function searchRecords(schemaId: string, field: string, value: FieldValue): Promise<{ keys: string[]; queries: number; tagsTried: number }> {
   const { zk } = await requireSession();
   return zk.search(schemaId, field, value);
+}
+
+/** Range search over an encrypted field: Arkiv evaluates <= 14 OR terms per month on HMAC tags. */
+export async function searchRange(schemaId: string, field: string, min: number, max: number): Promise<{ keys: string[]; queries: number; terms: number; nodes: number }> {
+  const { zk } = await requireSession();
+  return zk.searchRange(schemaId, field, min, max);
+}
+
+/** Encrypted COUNT: Arkiv counts matching tags server-side; no rows are downloaded. */
+export async function countRecords(schemaId: string, field: string, where: { eq: FieldValue } | { min: number; max: number }): Promise<{ count: number; queries: number; terms: number }> {
+  const { zk } = await requireSession();
+  return zk.count(schemaId, field, where as never);
+}
+
+/** JOIN: children of a record through the blind foreign key. */
+export async function childrenOf(entityKey: string, relation = "child"): Promise<{ keys: string[]; queries: number }> {
+  const { zk } = await requireSession();
+  return zk.childrenOf(entityKey, relation);
+}
+
+/** Records whose parent is gone (shredded/expired). */
+export async function orphanRecords(): Promise<string[]> {
+  const { zk } = await requireSession();
+  return zk.orphans();
 }
 
 /* ================================================================ public: verify / receipts */

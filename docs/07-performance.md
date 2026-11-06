@@ -232,3 +232,59 @@ The "before" path also needs every record's keys to still exist, so a third part
 | No index (default) | nothing beyond size bucket, epoch, schemaId | everything |
 
 Indexes are opt-in per field (`searchable`, `rangeField`, `parent`). Leave them off for fields where even equality patterns are sensitive.
+
+---
+
+## 6. Relational layer on encrypted data
+
+Arkiv's own guidance, verbatim:
+- [data-modeling skill]: "the SDK does not enforce foreign keys, uniqueness or cascading deletion".
+- [arkiv-graph]: "Relationships are application rules, not native joins or foreign-key constraints".
+- The same data-modeling guidance warns that "related entities created later with the same relative lifetime can outlive their parents; use the parent's observed absolute deadline".
+
+So relations belong in the app layer. arkivzk implements them, and the keys never leave the client. Live check: `node packages/sdk/relational.mjs`, results in `docs/relational-bench.json`, every step asserted.
+
+### 6.1 What maps to what
+
+| SQL / relational concept | arkivzk | On Arkiv |
+|---|---|---|
+| `INSERT` several rows in one transaction | `putMany([...])` | one `execute` batch, so all rows succeed or none do (Arkiv batches are atomic) |
+| Foreign key (1:N) | `parents: [{ key, relation }]` | indexed `rel = HMAC(K_rel, relation‖parentRecordId)`: Arkiv can't tell which record is the parent |
+| Junction table (M:N) | a row with 2 parents | `rel` + `rel2` |
+| `REFERENCES … ` must exist | parent must be live at insert | checked before any key is created |
+| Child lifetime ≤ parent | expiry clamped to the earliest parent `$expiresAt` (absolute block) | `ExpirationTime.atBlock(parentExpiry)` |
+| `JOIN` parent → children | `childrenOf(key, relation)` | 1 indexed query |
+| `JOIN` for many parents | `childrenOfMany(keys)` | ⌈P/9⌉ OR queries (2 terms per parent), no N+1 |
+| belongsTo | `parentsOf(key)` | 0 queries: in the sealed vault, and inside the ciphertext for recovery |
+| M:N lookup | `linked(key, relation)` | 1 query + local vault lookups |
+| Dangling FK check | `orphans()` | ⌈P/20⌉ `$key IN` liveness queries |
+| `ON DELETE CASCADE` | `shred(keys, …, { cascade: true })` | keys destroyed for every descendant, deletes + receipts in **1 tx** per owner |
+| `ON UPDATE CASCADE` (lease) | `LeaseManager.renew(keys, s, …, { cascade: true })` | children extended in the same tx, still clamped ≤ parent |
+| Restore after device loss | `recover()` | parent recordIds are inside each ciphertext, re-linked to entity keys after the scan |
+
+### 6.2 Complexity before vs after
+
+`P` = parents, `k` = children/matches, `N` = all records, `d` = tree depth.
+
+| Operation | Before (plain Arkiv, encrypted values) | After (arkivzk) | Measured on Rabdi |
+|---|---|---|---|
+| Insert parent + children | k+1 txs; children can be created after the parent died; no atomicity | **1 tx**, all-or-nothing | 4 rows (patient, doctor, visit, lab): **1 tx**, 624,808 gas, 11.5 s |
+| Children of 1 parent | impossible without decrypting all N: O(N) | O(1) HMAC + 1 query, O(k) | 387 ms, 1 query |
+| Children of P parents | P queries (N+1) | ⌈P/9⌉ queries | P = 5: **5 queries / 1,826 ms → 1 query / 389 ms** (−79% time) |
+| M:N (patient → doctors) | impossible without decrypting all | 1 query + O(k) local | 521 ms, 1 query |
+| belongsTo | O(N) decrypt | O(1), no network | 0 ms, 0 queries |
+| Orphan detection | O(N) reads | ⌈P/20⌉ queries | doctor shredded → visit junction reported |
+| Cascade shred of a tree | k+1 txs, children found by scan | d BFS queries + **1 tx** | patient + visit + lab: **1 tx**, 10.6 s |
+| Cascade renew | k+1 txs, a child could outlive its parent | **1 tx**, child ≤ parent kept | patient + lab + visit: **1 tx**, 11.0 s |
+| Lost device | relations lost | rebuilt from ciphertext | 14 records recovered with relations, 7.3 s |
+
+Batches that would break the half-block gas rule are split in halves before signing. Example: shredding 10 rows means 20 operations. Each part is its own atomic transaction, and every part that succeeds is saved right away, so a retry never publishes a duplicate receipt.
+
+### 6.3 What the relational tags leak
+
+| Visible on Arkiv | Not visible |
+|---|---|
+| that a record has 1 or 2 parents (`rel`/`rel2` set) | which records are the parents |
+| siblings: children of the same parent share a `rel` tag | the relation name, the parent's identity, any value |
+
+Relation keys are per identity (`HKDF(envSecret, "arkivzk/rel/v1")`). Destroying the identity (account shred) leaves the tags unlinkable forever.
