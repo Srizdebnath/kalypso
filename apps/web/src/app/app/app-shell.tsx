@@ -12,7 +12,7 @@ const TABS = [
   { href: "/app/prove", label: "Prove", tone: "bg-pink" },
   { href: "/app/shred", label: "Shred", tone: "bg-lime" },
   { href: "/app/query", label: "Query", tone: "bg-violet" },
-  { href: "/app/settings", label: "Recovery", tone: "bg-yellow" },
+  { href: "/app/settings", label: "Settings", tone: "bg-yellow" },
 ];
 
 export function AppShell({ children }: { children: ReactNode }) {
@@ -103,8 +103,8 @@ function Gate({ children }: { children: ReactNode }) {
             for your data.
           </li>
           <li>
-            <strong className="bg-yellow px-1">Recovery</strong> export or restore a
-            passphrase-protected recovery kit.
+            <strong className="bg-yellow px-1">Settings</strong> choose who signs new records, and
+            export or restore a recovery kit.
           </li>
         </ul>
         <p className="mt-4 text-sm">

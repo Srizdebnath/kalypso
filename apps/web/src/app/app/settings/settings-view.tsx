@@ -2,18 +2,27 @@
 
 import Link from "next/link";
 import { useState, type FormEvent } from "react";
-import { exportRecoveryKit, restoreFromKit } from "@/lib/arkivzk-client";
+import {
+  exportRecoveryKit,
+  getSignerMode,
+  restoreFromKit,
+  setSignerMode,
+  type SignerMode,
+} from "@/lib/arkivzk-client";
 import { downloadBlob, errorMessage } from "@/lib/format";
-import { Button, Card, ErrorBox, Field } from "@/components/ui";
+import { Button, Card, ErrorBox, Field, cx } from "@/components/ui";
 import { StepLog } from "@/components/step-list";
 
 const MIN_PASS = 12;
 
 export function SettingsView() {
   return (
-    <div className="grid gap-8 lg:grid-cols-2">
-      <ExportKit />
-      <RestoreKit />
+    <div className="space-y-8">
+      <SignerModeCard />
+      <div className="grid gap-8 lg:grid-cols-2">
+        <ExportKit />
+        <RestoreKit />
+      </div>
     </div>
   );
 }
@@ -194,6 +203,83 @@ function RestoreKit() {
           </div>
         )}
       </form>
+    </Card>
+  );
+}
+
+const MODES: { mode: SignerMode; label: string; desc: string }[] = [
+  {
+    mode: "wallet",
+    label: "Your wallet",
+    desc: "Your wallet signs and owns each record entity. Simple, but your address is visibly linked to every record.",
+  },
+  {
+    mode: "ephemeral",
+    label: "One-time signer via relayer",
+    desc: "A fresh key per record, with gas paid by a shared relayer pool, so your wallet address does not appear as the owner.",
+  },
+];
+
+function SignerModeCard() {
+  const [mode, setMode] = useState<SignerMode>(() => getSignerMode());
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function choose(m: SignerMode) {
+    if (m === mode || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await setSignerMode(m);
+      setMode(getSignerMode());
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Card className="p-0">
+      <div className="border-b-[3px] border-ink bg-pink p-5">
+        <p className="font-mono text-xs font-bold uppercase">privacy</p>
+        <h2 className="text-2xl font-bold">Signer for new records</h2>
+        <p className="mt-1 text-sm">
+          Who appears as the owner on Arkiv. Existing records keep their owner; this only affects
+          records you create from now on.
+        </p>
+      </div>
+      <div className="grid gap-4 p-5 md:grid-cols-2" role="radiogroup" aria-label="Signer for new records">
+        {MODES.map((m) => {
+          const on = mode === m.mode;
+          return (
+            <button
+              key={m.mode}
+              type="button"
+              role="radio"
+              aria-checked={on}
+              disabled={busy}
+              onClick={() => choose(m.mode)}
+              className={cx(
+                "border-[3px] border-ink p-4 text-left transition-transform",
+                on ? "bg-yellow shadow-brutal" : "bg-white hover:-translate-y-0.5",
+              )}
+            >
+              <span className="flex items-center gap-2 font-bold">
+                <span className={cx("grid h-5 w-5 place-items-center border-[3px] border-ink", on ? "bg-ink" : "bg-white")} />
+                {m.label}
+              </span>
+              <span className="mt-2 block text-sm">{m.desc}</span>
+            </button>
+          );
+        })}
+      </div>
+      {(busy || error) && (
+        <div className="px-5 pb-5">
+          {busy && <p className="font-mono text-sm">Switching…</p>}
+          {error && <ErrorBox title="Could not switch signer" error={error} />}
+        </div>
+      )}
     </Card>
   );
 }

@@ -1,11 +1,13 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import {
   expiringSoon,
   reminderIcsUrl,
   renewRecords,
+  searchRecords,
+  type FieldValue,
   type LocalRecord,
 } from "@/lib/arkivzk-client";
 import { errorMessage, formatDate } from "@/lib/format";
@@ -26,10 +28,14 @@ export function RecordsPanel({
   state,
   selected,
   onSelect,
+  schemaId,
+  searchFields,
 }: {
   state: AsyncState<LocalRecord[]>;
   selected: string | null;
   onSelect: (k: string) => void;
+  schemaId: string;
+  searchFields: { name: string; numeric?: boolean }[];
 }) {
   const router = useRouter();
   const { setFocusRecord } = useWallet();
@@ -41,6 +47,7 @@ export function RecordsPanel({
   const soon = useAsync(() => expiringSoon(SOON_DAYS), version);
 
   const [renewSel, setRenewSel] = useState<Set<string>>(new Set());
+  const [search, setSearch] = useState<SearchResult | null>(null);
   const barRef = useRef<HTMLDivElement>(null);
   const renewable = (data ?? []).filter((r) => r.status === "live");
   const chosen = renewable.filter((r) => renewSel.has(r.entityKey)).map((r) => r.entityKey);
@@ -98,6 +105,18 @@ export function RecordsPanel({
         )}
       </div>
 
+      <SearchBox schemaId={schemaId} fields={searchFields} result={search} onResult={setSearch} />
+
+      {search && data && (
+        <p className="mb-3 text-sm">
+          Showing {data.filter((r) => search.keys.has(r.entityKey)).length} of {data.length} records
+          matching <strong>{search.label}</strong>
+          {search.keys.size > data.filter((r) => search.keys.has(r.entityKey)).length &&
+            ` (${search.keys.size} matches on Arkiv in total)`}
+          .
+        </p>
+      )}
+
       {loading && !data && <Loading label="Loading records" />}
       {error && <ErrorBox title="Could not load records" error={error} onRetry={reload} />}
       {data && data.length === 0 && (
@@ -108,7 +127,7 @@ export function RecordsPanel({
       )}
       {data && data.length > 0 && (
         <ul className="space-y-3">
-          {data.map((r) => {
+          {data.filter((r) => !search || search.keys.has(r.entityKey)).map((r) => {
             const exp = expiryLabel(r, now);
             const urgent = expiresWithin(r, now, DAY);
             const live = r.status === "live";
@@ -135,6 +154,12 @@ export function RecordsPanel({
                   <StatusBadge status={r.status} />
                   {r.pendingShred && <Badge tone="danger">receipt pending</Badge>}
                   <Badge>{r.schemaId}</Badge>
+                  <Badge tone="white">epoch {r.epoch}</Badge>
+                  {r.signer === "wallet" ? (
+                    <Badge tone="cyan">owned by your wallet</Badge>
+                  ) : (
+                    <Badge tone="pink">one-time signer (unlinkable)</Badge>
+                  )}
                   {r.swarmRef && <Badge tone="violet">+ file</Badge>}
                   {exp && (
                     <span
@@ -326,4 +351,94 @@ function useNow(intervalMs = 1_000) {
     return () => clearInterval(id);
   }, [intervalMs]);
   return now;
+}
+
+type SearchResult = { keys: Set<string>; queries: number; tagsTried: number; label: string };
+
+function SearchBox({
+  schemaId,
+  fields,
+  result,
+  onResult,
+}: {
+  schemaId: string;
+  fields: { name: string; numeric?: boolean }[];
+  result: SearchResult | null;
+  onResult: (r: SearchResult | null) => void;
+}) {
+  const [field, setField] = useState(fields[0]?.name ?? "");
+  const [value, setValue] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const numeric = fields.find((f) => f.name === field)?.numeric ?? false;
+
+  async function run(e: FormEvent) {
+    e.preventDefault();
+    const v = value.trim();
+    if (!v) return;
+    let typed: FieldValue = v;
+    if (numeric) {
+      const n = Number(v);
+      if (!Number.isFinite(n)) return setError(`${field} must be a number`);
+      typed = n;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const r = await searchRecords(schemaId, field, typed);
+      onResult({ keys: new Set(r.keys), queries: r.queries, tagsTried: r.tagsTried, label: `${field} = ${v}` });
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="nb-border mb-4 bg-white p-3">
+      <form onSubmit={run} className="flex flex-wrap items-end gap-2">
+        <div>
+          <label className="nb-label" htmlFor="search-field">Search field</label>
+          <select id="search-field" className="nb-input w-auto" value={field} onChange={(e) => setField(e.target.value)} disabled={busy}>
+            {fields.map((f) => (
+              <option key={f.name}>{f.name}</option>
+            ))}
+          </select>
+        </div>
+        <div className="min-w-[8rem] flex-1">
+          <label className="nb-label" htmlFor="search-value">Exact value</label>
+          <input
+            id="search-value"
+            className="nb-input"
+            inputMode={numeric ? "numeric" : undefined}
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            disabled={busy}
+          />
+        </div>
+        <Button type="submit" tone="cyan" disabled={busy || !value.trim()}>
+          {busy ? "Searching…" : "Search"}
+        </Button>
+        {result && (
+          <Button type="button" tone="white" onClick={() => onResult(null)} disabled={busy}>
+            Clear
+          </Button>
+        )}
+      </form>
+      <p className="mt-2 text-xs opacity-70">
+        Blind-index search: only finds records where this field was marked searchable when created.
+      </p>
+      {result && (
+        <p className="mt-2 font-mono text-xs font-bold">
+          {result.keys.size} match{result.keys.size === 1 ? "" : "es"} · {result.queries} quer
+          {result.queries === 1 ? "y" : "ies"}, {result.tagsTried} tag{result.tagsTried === 1 ? "" : "s"} tried
+        </p>
+      )}
+      {error && (
+        <div className="mt-2">
+          <ErrorBox title="Search failed" error={error} />
+        </div>
+      )}
+    </div>
+  );
 }

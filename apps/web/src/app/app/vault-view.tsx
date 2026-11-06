@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import {
   getRecord,
+  getSignerMode,
   listRecords,
   putRecord,
   type DecryptedRecord,
@@ -17,6 +18,12 @@ import { StepLog } from "@/components/step-list";
 import { RecordsPanel } from "./records-panel";
 
 const SCHEMA_ID = "medical.v1";
+const FIELDS = [
+  { name: "age", numeric: true },
+  { name: "country" },
+  { name: "bloodGroup" },
+];
+const MAX_SEARCHABLE = 3;
 const BLOOD_GROUPS = ["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"];
 const DAY = 86_400;
 const RETENTION = [
@@ -35,7 +42,13 @@ export function VaultView() {
     <div className="grid gap-8 lg:grid-cols-[minmax(0,26rem)_1fr]">
       <CreateRecord onCreated={records.reload} />
       <div className="min-w-0 space-y-8">
-        <RecordsPanel state={records} selected={selected} onSelect={setSelected} />
+        <RecordsPanel
+          state={records}
+          selected={selected}
+          onSelect={setSelected}
+          schemaId={SCHEMA_ID}
+          searchFields={FIELDS}
+        />
         {selected && <RecordViewer key={selected} entityKey={selected} onClose={() => setSelected(null)} />}
       </div>
     </div>
@@ -50,6 +63,7 @@ function CreateRecord({ onCreated }: { onCreated: () => void }) {
   const [bloodGroup, setBloodGroup] = useState(BLOOD_GROUPS[0]);
   const [file, setFile] = useState<File | null>(null);
   const [retentionSeconds, setRetentionSeconds] = useState(7 * DAY);
+  const [searchable, setSearchable] = useState<string[]>([]);
   const [running, setRunning] = useState(false);
   const [steps, setSteps] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -75,6 +89,7 @@ function CreateRecord({ onCreated }: { onCreated: () => void }) {
           values: { age: ageNum, country: country.trim(), bloodGroup },
           file: file ?? undefined,
           retentionSeconds,
+          ...(searchable.length > 0 && { searchable }),
         },
         (s) => setSteps((prev) => [...prev, s]),
       );
@@ -92,6 +107,7 @@ function CreateRecord({ onCreated }: { onCreated: () => void }) {
     setCountry("");
     setBloodGroup(BLOOD_GROUPS[0]);
     setFile(null);
+    setSearchable([]);
     if (fileInput.current) fileInput.current.value = "";
     setSteps([]);
     setResult(null);
@@ -180,6 +196,50 @@ function CreateRecord({ onCreated }: { onCreated: () => void }) {
             The Arkiv entity expires after this. Expiry alone isn&apos;t erasure; shred to destroy the keys.
           </p>
         </fieldset>
+
+        <fieldset>
+          <legend className="nb-label">Searchable fields</legend>
+          <div className="flex flex-wrap gap-2">
+            {FIELDS.map((f) => {
+              const on = searchable.includes(f.name);
+              const full = !on && searchable.length >= MAX_SEARCHABLE;
+              return (
+                <label
+                  key={f.name}
+                  className={cx(
+                    "flex cursor-pointer items-center gap-2 border-[3px] border-ink px-3 py-1.5 font-mono text-sm font-bold",
+                    on ? "bg-yellow" : "bg-white",
+                    full && "cursor-not-allowed opacity-50",
+                  )}
+                >
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 accent-black"
+                    checked={on}
+                    disabled={running || full}
+                    onChange={() =>
+                      setSearchable((prev) => (on ? prev.filter((x) => x !== f.name) : [...prev, f.name]))
+                    }
+                  />
+                  {f.name}
+                </label>
+              );
+            })}
+          </div>
+          <p className="mt-1 text-xs opacity-70">
+            Searchable fields get a blind-index tag on Arkiv: you can find records by exact value;
+            others see random tags. Max {MAX_SEARCHABLE}.
+          </p>
+        </fieldset>
+
+        <p className="nb-border bg-paper px-3 py-2 text-xs">
+          Signed by:{" "}
+          <strong>{getSignerMode() === "ephemeral" ? "one-time signer via relayer" : "your wallet"}</strong>
+          {" · "}
+          <Link href="/app/settings" className="font-bold underline">
+            change
+          </Link>
+        </p>
 
         <Button type="submit" tone="ink" size="lg" className="w-full" disabled={!canSubmit}>
           {running ? "Encrypting & writing…" : "Encrypt & store"}
