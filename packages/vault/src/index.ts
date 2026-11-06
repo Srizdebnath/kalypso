@@ -119,8 +119,8 @@ export type VaultRecord = {
   receiptKey?: `0x${string}`;
   /** set between "keys destroyed" and "receipt published on Arkiv", so publishing can be retried */
   pendingShred?: { request: ShredRequest; attestations: DestroyedAttestation[]; liveEntities: `0x${string}`[] };
-  /** parent entity key if this record was created as a child (blind foreign key on Arkiv) */
-  parentKey?: `0x${string}`;
+  /** parents (blind foreign keys on Arkiv): 1 parent = one-to-many child, 2 parents = many-to-many junction row */
+  parents?: { entityKey: `0x${string}`; recordId: string; relation: string }[];
   /** field indexed for range queries */
   rangeField?: string;
 };
@@ -210,9 +210,9 @@ export class Vault {
   }
 
   /** Blind foreign key: links a child to its parent record without revealing either recordId. Not epoch-scoped. */
-  relTag(parentRecordId: string): `0x${string}` {
+  relTag(parentRecordId: string, relation = "child"): `0x${string}` {
     const k = hkdf(sha256, fromHex(this.id.envSecret), undefined, utf8("arkivzk/rel/v1"), 32);
-    return toHex(hmac(sha256, k, utf8(parentRecordId.toLowerCase())));
+    return toHex(hmac(sha256, k, utf8(`${relation}\0${parentRecordId.toLowerCase()}`)));
   }
 
   async saveCollection(c: VaultCollection) {

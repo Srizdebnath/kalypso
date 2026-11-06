@@ -8,7 +8,7 @@ import {
   encodeField, randomFieldSalt, fieldHex, U64_MAX, type FieldValue,
 } from "@arkivzk/crypto";
 import {
-  APP, ZkRecord, ZkProof, ZkVerificationKey, ShredReceipt, guardedBatch, encodeRecord, decodeRecord, toSlots,
+  APP, ZkRecord, ZkProof, ZkVerificationKey, ShredReceipt, guardedBatch, ArkivWriteError, encodeRecord, decodeRecord, toSlots,
   recordAad, attachmentAad, epochOf, contentKey, localKeyProvider, rangePath, rangeCover,
   type WriteEnv, type RecordPlaintext, type DestroyedAttestation, type ShredRequest,
 } from "@arkivzk/core";
@@ -23,6 +23,8 @@ const BLOCK_SECONDS = 2;
 const MAX_SEARCHABLE = 3;
 /** equality terms per OR query: under the node query-size limit, and a multiple of 3 so one tag's 3 columns stay in one query (no double counting) */
 const TERMS_PER_QUERY = 18;
+/** creates per atomic transaction (bounded by the half-block gas rule; ~200k gas each) */
+const MAX_BATCH_CREATES = 10;
 
 /** Encrypted blob storage for attachments (Swarm in the reference app). */
 export interface BlobStore {
@@ -61,6 +63,8 @@ export type PutInput = {
   rangeField?: string;
   /** entity key of a parent record in this vault: stored as a blind foreign key (JOIN + cascade shred) */
   parent?: string;
+  /** up to 2 parents with a relation name; `{ index }` points at an earlier row of the same putMany batch */
+  parents?: { key: string | { index: number }; relation?: string }[];
 };
 
 export type PutResult = { entityKey: Hex; txHash: Hex; expiresAtBlock: bigint; commitment: string; swarmRef?: string; signer: Hex };
@@ -115,20 +119,36 @@ export class ArkivZK {
     };
   }
 
-  /** Run one batch per distinct owner, all in parallel (ephemeral records each have their own owner). */
+  /**
+   * Run one batch per distinct owner, owners in parallel (ephemeral records each have their own owner).
+   * If a batch would exceed the half-block gas rule, it is split in halves and the parts are sent
+   * one after another. That check fails BEFORE signing, so nothing is resent.
+   * Note: split parts are separate transactions, each atomic on its own.
+   */
   async perSigner<T extends { signer: "wallet" | "ephemeral"; signerKey?: Hex }>(
     items: T[], build: (group: T[]) => Parameters<typeof guardedBatch>[1] | null,
+    onResult?: (out: { group: T[]; res: Awaited<ReturnType<typeof guardedBatch>> }) => Promise<void>,
   ) {
     const groups = new Map<string, T[]>();
     for (const it of items) {
       const k = it.signer === "wallet" ? "wallet" : (it.signerKey ?? "gone");
       groups.set(k, [...(groups.get(k) ?? []), it]);
     }
-    return Promise.all([...groups.values()].map(async (g) => {
+    type Out = { group: T[]; res: Awaited<ReturnType<typeof guardedBatch>> };
+    const run = async (g: T[]): Promise<Out[]> => {
       const batch = build(g);
-      if (!batch) return null;
-      return { group: g, res: await guardedBatch(this.envFor(g[0].signer, g[0].signerKey), batch) };
-    }));
+      if (!batch) return [];
+      try {
+        const out = { group: g, res: await guardedBatch(this.envFor(g[0].signer, g[0].signerKey), batch) };
+        if (onResult) await onResult(out); // persist right away: a later chunk may fail
+        return [out];
+      } catch (e) {
+        if (!(e instanceof ArkivWriteError && /Batch too large/.test(e.message) && g.length > 1)) throw e;
+        const mid = Math.ceil(g.length / 2);
+        return [...(await run(g.slice(0, mid))), ...(await run(g.slice(mid)))];
+      }
+    };
+    return (await Promise.all([...groups.values()].map(run))).flat();
   }
 
   // ================================================================== key shares
@@ -210,93 +230,161 @@ export class ArkivZK {
 
   // ================================================================== put
   async put(input: PutInput, step: Step = noop): Promise<PutResult> {
-    const fields = Object.keys(input.values);
-    if (fields.length === 0 || fields.length > SLOTS) throw new Error(`a record needs 1..${SLOTS} fields`);
-    const searchable = input.searchable ?? [];
-    if (searchable.length > MAX_SEARCHABLE || searchable.some((f) => !fields.includes(f))) throw new Error(`up to ${MAX_SEARCHABLE} searchable fields, all present in values`);
-    if (input.rangeField) {
-      const v = input.values[input.rangeField];
-      if (typeof v !== "number") throw new Error("rangeField must name a numeric field");
-      rangePath(v); // validates 0..255 integer
+    return (await this.putMany([input], step))[0];
+  }
+
+  /**
+   * Relational insert: several records in ONE atomic Arkiv transaction (all or nothing).
+   * A record may reference parents already in the vault (entity key) or earlier rows of the same batch
+   * ({ index }). Referential rules enforced here, because Arkiv itself has no foreign keys:
+   *  - every parent must be live;
+   *  - a child never outlives its parents: its expiry is clamped to the earliest parent expiry;
+   *  - at most 2 parents (2 = junction row for many-to-many).
+   */
+  async putMany(inputs: PutInput[], step: Step = noop): Promise<PutResult[]> {
+    if (inputs.length === 0) throw new Error("nothing to write");
+    if (inputs.length > MAX_BATCH_CREATES) throw new Error(`at most ${MAX_BATCH_CREATES} records per transaction`);
+    const now = await this.publicClient.getBlockNumber();
+
+    // ---- validate + resolve relations and absolute expiries (no secrets created yet)
+    type Rel = { relation: string; existing?: VaultRecord; index?: number };
+    const plans = await Promise.all(inputs.map(async (input, i) => {
+      const fields = Object.keys(input.values);
+      if (fields.length === 0 || fields.length > SLOTS) throw new Error(`a record needs 1..${SLOTS} fields`);
+      const searchable = input.searchable ?? [];
+      if (searchable.length > MAX_SEARCHABLE || searchable.some((f) => !fields.includes(f))) throw new Error(`up to ${MAX_SEARCHABLE} searchable fields, all present in values`);
+      if (input.rangeField) {
+        const v = input.values[input.rangeField];
+        if (typeof v !== "number") throw new Error("rangeField must name a numeric field");
+        rangePath(v); // validates 0..255 integer
+      }
+      const blocks = Math.ceil(input.retentionSeconds / BLOCK_SECONDS);
+      if (blocks < 30 || BigInt(blocks) > MAX_LIFETIME) throw new Error("retention must be between 1 minute and ~182 days");
+      const refs = [...(input.parent ? [{ key: input.parent }] : []), ...(input.parents ?? [])];
+      if (refs.length > 2) throw new Error("at most 2 parents per record (2 = many-to-many junction row)");
+      const rels: Rel[] = [];
+      for (const ref of refs) {
+        const relation = ref.relation ?? "child";
+        if (typeof ref.key === "object") {
+          if (!(ref.key.index >= 0 && ref.key.index < i)) throw new Error(`row ${i}: a batch parent must be an earlier row`);
+          rels.push({ relation, index: ref.key.index });
+        } else {
+          const p = await this.requireRecord(ref.key);
+          if (p.status !== "live") throw new Error(`parent ${ref.key} is not live`);
+          rels.push({ relation, existing: p });
+        }
+      }
+      return { input, fields, searchable, rels, target: now + BigInt(blocks) };
+    }));
+    for (const p of plans) { // clamp to parents (earlier rows already clamped, so this is transitive)
+      for (const r of p.rels) {
+        const parentExp = r.existing ? BigInt(r.existing.expiresAtBlock) : plans[r.index!].target;
+        if (parentExp < p.target) p.target = parentExp;
+      }
+      if (p.target < now + 30n) throw new Error("a parent expires in under a minute: renew it before adding children");
     }
-    const parent = input.parent ? await this.requireRecord(input.parent) : undefined;
-    if (parent && parent.status !== "live") throw new Error("parent record is not live");
-    const blocks = Math.ceil(input.retentionSeconds / BLOCK_SECONDS);
-    if (blocks < 30 || BigInt(blocks) > MAX_LIFETIME) throw new Error("retention must be between 1 minute and ~182 days");
+    const msOf = (target: bigint) => Date.now() + Number(target - now) * BLOCK_SECONDS * 1000;
 
+    // ---- per record: keys, commitment, ciphertext, guardian shares
+    const signerKey = this.mode === "ephemeral" ? (generatePrivateKey() as Hex) : undefined;
+    const prepared: { recordId: Hex; fields: string[]; commitment: string; collectionId: Hex; epoch: string; deviceShare: string; swarmRef?: string; values: Record<string, unknown> }[] = [];
+    const secrets: Uint8Array[] = [];
     const epoch = epochOf();
-    const keyExpiresAt = Date.now() + input.retentionSeconds * 1000;
-    const recordId = toHex(randomBytes(16));
-    const salt = randomFieldSalt();
-    const { key: ck, collectionId } = await this.collectionKey(input.schemaId, epoch, keyExpiresAt, step);
-    const dek = aead.newKey();
-    const ckey = contentKey(dek, ck);
-    zeroize(ck);
-    let deviceShare: string | undefined;
+    const recordIds = plans.map(() => toHex(randomBytes(16)) as Hex);
     try {
-      step("Committing fields (Poseidon2)…");
-      const commitment = fieldHex(await computeCommitment(toSlots(fields, input.values), salt));
+      for (const [i, p] of plans.entries()) {
+        const { input } = p;
+        const tag = inputs.length > 1 ? `[${i + 1}/${inputs.length}] ` : "";
+        const recordId = recordIds[i];
+        const keyExpiresAt = msOf(p.target) + 60_000;
+        const salt = randomFieldSalt();
+        const { key: ck, collectionId } = await this.collectionKey(input.schemaId, epoch, keyExpiresAt, step);
+        const dek = aead.newKey();
+        const ckey = contentKey(dek, ck);
+        secrets.push(dek, ckey);
+        zeroize(ck);
+        step(`${tag}Committing fields (Poseidon2)…`);
+        const commitment = fieldHex(await computeCommitment(toSlots(p.fields, input.values), salt));
+        let attachment: RecordPlaintext["attachment"];
+        if (input.attachment) {
+          if (!this.cfg.blobs) throw new Error("no blob store configured for attachments");
+          step(`${tag}Encrypting attachment and uploading to ${this.cfg.blobs.name}…`);
+          const sealed = aead.seal(attachmentKey(ckey), padPow2(input.attachment.bytes), attachmentAad(recordId));
+          attachment = { name: input.attachment.name, type: input.attachment.type, swarmRef: await this.cfg.blobs.upload(sealed), size: input.attachment.bytes.length };
+        }
+        const parentIds = p.rels.map((r) => ({ recordId: r.existing ? r.existing.recordId : recordIds[r.index!], relation: r.relation }));
+        step(`${tag}Encrypting record (AES-256-GCM, padded)…`);
+        const plaintext: RecordPlaintext = {
+          v: 1, schemaId: input.schemaId, recordId, fields: p.fields, values: input.values, salt: salt.toString(), createdAt: Date.now(), attachment,
+          ...(parentIds.length ? { parents: parentIds } : {}),
+        };
+        const ct = aead.seal(ckey, pad(encodeRecord(plaintext)), recordAad(input.schemaId, recordId));
+        step(`${tag}Splitting record key 2-of-3, shares to guardians (ML-KEM-768 + X25519)…`);
+        const deviceShare = await this.storeShares(recordId, dek, keyExpiresAt);
 
-      let attachment: RecordPlaintext["attachment"];
-      if (input.attachment) {
-        if (!this.cfg.blobs) throw new Error("no blob store configured for attachments");
-        step(`Encrypting attachment and uploading to ${this.cfg.blobs.name}…`);
-        const sealed = aead.seal(attachmentKey(ckey), padPow2(input.attachment.bytes), attachmentAad(recordId));
-        attachment = { name: input.attachment.name, type: input.attachment.type, swarmRef: await this.cfg.blobs.upload(sealed), size: input.attachment.bytes.length };
+        const tags: Record<string, string> = {};
+        p.searchable.forEach((f, j) => { tags[`bix${j}`] = this.vault.blindTag(input.schemaId, epoch, f, input.values[f] as string | number | boolean); });
+        if (input.rangeField) for (const n of rangePath(input.values[input.rangeField] as number)) tags[`r${n.level}`] = this.vault.rangeTag(input.schemaId, epoch, input.rangeField, n.level, n.prefix);
+        parentIds.forEach((pp, j) => { tags[j === 0 ? "rel" : "rel2"] = this.vault.relTag(pp.recordId, pp.relation); });
+
+        prepared.push({
+          recordId, fields: p.fields, commitment, collectionId, epoch, deviceShare, swarmRef: attachment?.swarmRef,
+          values: {
+            app: APP, schemaId: input.schemaId, epoch, commitment, ct,
+            envId: this.vault.sealEnvelope({ recordId, signerKey }),
+            ...(attachment ? { swarmRef: attachment.swarmRef } : {}),
+            ...tags,
+          },
+        });
       }
 
-      step("Encrypting record (AES-256-GCM, padded)…");
-      const plaintext: RecordPlaintext = { v: 1, schemaId: input.schemaId, recordId, fields, values: input.values, salt: salt.toString(), createdAt: Date.now(), attachment };
-      const ct = aead.seal(ckey, pad(encodeRecord(plaintext)), recordAad(input.schemaId, recordId));
-
-      step("Splitting record key 2-of-3, shares to guardians (ML-KEM-768 + X25519)…");
-      deviceShare = await this.storeShares(recordId, dek, keyExpiresAt);
-
-      const signerKey = this.mode === "ephemeral" ? (generatePrivateKey() as Hex) : undefined;
-      const bix: Record<string, string> = {};
-      searchable.forEach((f, i) => { bix[`bix${i}`] = this.vault.blindTag(input.schemaId, epoch, f, input.values[f] as string | number | boolean); });
-      if (input.rangeField) for (const n of rangePath(input.values[input.rangeField] as number)) bix[`r${n.level}`] = this.vault.rangeTag(input.schemaId, epoch, input.rangeField, n.level, n.prefix);
-      if (parent) bix.rel = this.vault.relTag(parent.recordId);
-
-      step(this.mode === "ephemeral" ? "Funding one-time signer via relayer, writing to Arkiv…" : "Writing encrypted entity to Arkiv (confirm in wallet)…");
+      // ---- one atomic Arkiv transaction for every row
+      step(this.mode === "ephemeral"
+        ? "Funding one-time signer via relayer, writing to Arkiv…"
+        : inputs.length > 1 ? `Writing ${inputs.length} encrypted entities in ONE Arkiv transaction (confirm in wallet)…` : "Writing encrypted entity to Arkiv (confirm in wallet)…");
       const env = this.envFor(this.mode, signerKey);
       let res;
       try {
         res = await guardedBatch(env, {
-          creates: [{
-            schema: ZkRecord,
-            values: {
-              app: APP, schemaId: input.schemaId, epoch, commitment, ct,
-              envId: this.vault.sealEnvelope({ recordId, signerKey }),
-              ...(attachment ? { swarmRef: attachment.swarmRef } : {}),
-              ...bix,
-            },
-            expiration: ExpirationTime.fromBlocks(blocks),
+          creates: prepared.map((r, i) => ({
+            schema: ZkRecord, values: r.values,
+            expiration: ExpirationTime.atBlock(plans[i].target),
             flags: { readonly: true, permissionlessExtension: false },
             salt: BigInt(toHex(randomBytes(15))),
-          }] as any,
+          })) as any,
         });
       } catch (e) {
-        await this.guardianShred([recordId], "user").catch(() => {});
+        await this.guardianShred(recordIds, "user").catch(() => {});
         throw e;
       }
-      const entityKey = (res.createdEntities[0] as string).toLowerCase() as Hex;
-      const entity = await this.publicClient.getEntity(entityKey, ZkRecord);
-      const now = await this.publicClient.getBlockNumber();
+      const keys = (res.createdEntities as string[]).map((k) => k.toLowerCase() as Hex);
+      if (keys.length !== prepared.length) throw new ArkivWriteError("create count mismatch: reconcile before retrying", res.txHash);
+      const live = await liveKeys(this.publicClient, keys);
+      const blockNow = await this.publicClient.getBlockNumber();
       const guardianKeys = await Promise.all(this.cfg.guardians.map(async (g) => (await g.info()).signPublicKey));
-      await this.vault.saveRecord({
-        entityKey, recordId, schemaId: input.schemaId, fields, commitment, createdAt: Date.now(),
-        expiresAtBlock: entity.$expiresAt.toString(), expiresAtMs: this.msAt(entity.$expiresAt, now),
-        swarmRef: attachment?.swarmRef, guardians: guardianKeys, deviceShare, status: "live", proofKeys: [],
-        collectionId, epoch, signer: this.mode, signerKey,
-        ...(parent ? { parentKey: parent.entityKey } : {}), ...(input.rangeField ? { rangeField: input.rangeField } : {}),
-      });
+      const out: PutResult[] = [];
+      for (const [i, r] of prepared.entries()) {
+        const exp = live.get(keys[i]) ?? plans[i].target;
+        const parents = plans[i].rels.map((rel) => ({
+          entityKey: (rel.existing ? rel.existing.entityKey : keys[rel.index!]) as Hex,
+          recordId: rel.existing ? rel.existing.recordId : recordIds[rel.index!], relation: rel.relation,
+        }));
+        await this.vault.saveRecord({
+          entityKey: keys[i], recordId: r.recordId, schemaId: inputs[i].schemaId, fields: r.fields, commitment: r.commitment, createdAt: Date.now(),
+          expiresAtBlock: exp.toString(), expiresAtMs: this.msAt(exp, blockNow),
+          swarmRef: r.swarmRef, guardians: guardianKeys, deviceShare: r.deviceShare, status: "live", proofKeys: [],
+          collectionId: r.collectionId, epoch: r.epoch, signer: this.mode, signerKey,
+          ...(parents.length ? { parents } : {}), ...(inputs[i].rangeField ? { rangeField: inputs[i].rangeField } : {}),
+        });
+        out.push({ entityKey: keys[i], txHash: res.txHash as Hex, expiresAtBlock: exp, commitment: r.commitment, swarmRef: r.swarmRef, signer: env.account });
+      }
       step("Done");
-      return { entityKey, txHash: res.txHash as Hex, expiresAtBlock: entity.$expiresAt, commitment, swarmRef: attachment?.swarmRef, signer: env.account };
+      return out;
     } finally {
-      zeroize(dek, ckey);
+      zeroize(...secrets);
     }
   }
+
 
   private async requireRecord(entityKey: string) {
     const r = await this.vault.getRecord(entityKey);
@@ -388,21 +476,89 @@ export class ArkivZK {
     return { count: Number(total), queries, terms: terms.length };
   }
 
-  /** JOIN parent -> children through the blind foreign key: one indexed equality query (+ keyset pages). */
-  async childrenOf(parentEntityKey: string) {
-    const parent = await this.requireRecord(parentEntityKey);
-    const tag = this.vault.relTag(parent.recordId);
-    const keys: Hex[] = [];
-    let cursor: string | undefined, queries = 0;
-    for (;;) {
-      const page = await this.publicClient.select({ $key: true, schemaId: true }).from(ZkRecord)
-        .where(and(eq("app", APP), eq("rel", tag), ...(cursor ? [gt("$key", key(cursor as Hex))] : []))).orderBy(asc("$key")).limit(100).fetch();
-      queries++;
-      keys.push(...page.entities.map((e) => e.$key.toLowerCase() as Hex));
-      if (page.entities.length < 100) break;
-      cursor = page.entities[page.entities.length - 1].$key;
+  // ================================================================== relational layer
+  /** JOIN parent -> children (rel OR rel2 = HMAC(relation, parent)): one indexed query + keyset pages. */
+  async childrenOf(parentEntityKey: string, relation = "child") {
+    const m = await this.childrenOfMany([parentEntityKey], relation);
+    return { keys: m.byParent.get(parentEntityKey.toLowerCase() as Hex) ?? [], queries: m.queries };
+  }
+
+  /**
+   * Batched JOIN for many parents (kills the N+1 pattern): 2 terms per parent, 9 parents per OR query.
+   * Returns parent -> children map. Before: P queries; after: ceil(P/9) (+ pages).
+   */
+  async childrenOfMany(parentEntityKeys: string[], relation = "child") {
+    const parents = await Promise.all(parentEntityKeys.map((k) => this.requireRecord(k)));
+    const tagToParent = new Map(parents.map((p) => [this.vault.relTag(p.recordId, relation), p.entityKey.toLowerCase() as Hex]));
+    const tags = [...tagToParent.keys()];
+    const byParent = new Map<Hex, Hex[]>(parents.map((p) => [p.entityKey.toLowerCase() as Hex, []]));
+    let queries = 0;
+    for (let i = 0; i < tags.length; i += TERMS_PER_QUERY / 2) {
+      const chunk = tags.slice(i, i + TERMS_PER_QUERY / 2);
+      let cursor: string | undefined;
+      for (;;) {
+        const page: any = await (this.publicClient.select({ $key: true, rel: true, rel2: true }).from(ZkRecord) as any)
+          .where((and as any)(eq("app", APP), or(...chunk.flatMap((t) => [eq("rel", t), eq("rel2", t)])), ...(cursor ? [gt("$key", key(cursor as Hex))] : [])))
+          .orderBy(asc("$key")).limit(100).fetch();
+        queries++;
+        for (const e of page.entities) {
+          for (const col of ["rel", "rel2"]) {
+            const parent = tagToParent.get(e[col]?.value);
+            if (parent) byParent.get(parent)!.push(e.$key.toLowerCase());
+          }
+        }
+        if (page.entities.length < 100) break;
+        cursor = page.entities[page.entities.length - 1].$key;
+      }
     }
-    return { keys, queries };
+    return { byParent, queries };
+  }
+
+  /** belongsTo: the parents of a record (from the sealed vault, restored from ciphertext on recovery). O(1), no query. */
+  async parentsOf(entityKey: string) {
+    return (await this.requireRecord(entityKey)).parents ?? [];
+  }
+
+  /**
+   * Many-to-many through junction rows: records linked to `entityKey` via junctions of `relation`.
+   * e.g. patient -[visit]- doctor: linked(patient, "visit") -> doctors. 1 query + O(k) local lookups.
+   */
+  async linked(entityKey: string, relation: string) {
+    const { keys: junctions, queries } = await this.childrenOf(entityKey, relation);
+    const me = entityKey.toLowerCase();
+    const out: { junction: Hex; other: Hex; relation: string }[] = [];
+    for (const j of junctions) {
+      const r = await this.vault.getRecord(j);
+      for (const p of r?.parents ?? []) if (p.entityKey.toLowerCase() !== me) out.push({ junction: j, other: p.entityKey, relation: p.relation });
+    }
+    return { links: out, queries };
+  }
+
+  /** Dangling references: live records whose parent is gone (deleted/expired/shredded). ceil(P/20) queries. */
+  async orphans() {
+    const recs = (await this.vault.listRecords()).filter((r) => r.status === "live" && r.parents?.length);
+    const live = await liveKeys(this.publicClient, recs.flatMap((r) => r.parents!.map((p) => p.entityKey)));
+    return recs.filter((r) => r.parents!.some((p) => !live.has(p.entityKey.toLowerCase()))).map((r) => r.entityKey);
+  }
+
+  /** All descendants (BFS over blind FKs, every relation the vault knows about), depth <= 8. One batched query per level. */
+  async descendantsOf(roots: string[]): Promise<Hex[]> {
+    const all = await this.vault.listRecords();
+    const seen = new Set(roots.map((k) => k.toLowerCase()));
+    let frontier = [...seen];
+    for (let depth = 0; depth < 8 && frontier.length; depth++) {
+      // children are found locally first (vault knows parents), then confirmed on Arkiv via the blind FK
+      const next = all.filter((r) => r.status === "live" && !seen.has(r.entityKey.toLowerCase()) && r.parents?.some((p) => frontier.includes(p.entityKey.toLowerCase())));
+      const relations = [...new Set(next.flatMap((r) => r.parents!.map((p) => p.relation)))];
+      const confirmed = new Set<string>();
+      for (const rel of relations) {
+        const { byParent } = await this.childrenOfMany(frontier.filter((k) => all.some((r) => r.entityKey.toLowerCase() === k && r.status === "live")), rel);
+        for (const ks of byParent.values()) ks.forEach((k) => confirmed.add(k));
+      }
+      frontier = next.map((r) => r.entityKey.toLowerCase()).filter((k) => confirmed.has(k));
+      frontier.forEach((k) => seen.add(k));
+    }
+    return [...seen] as Hex[];
   }
 
   private async epochsOf(schemaId: string) {
@@ -517,7 +673,7 @@ export class ArkivZK {
 
   /** Record-level crypto-shred. */
   async shred(entityKeys: string[], onStep: StepFn = () => {}, opts: { cascade?: boolean } = {}): Promise<ShredResult> {
-    if (opts.cascade) entityKeys = await this.withDescendants(entityKeys);
+    if (opts.cascade) entityKeys = await this.descendantsOf(entityKeys);
     const recs: VaultRecord[] = [];
     for (const k of entityKeys) {
       const r = await this.requireRecord(k);
@@ -535,22 +691,6 @@ export class ArkivZK {
     }
     const out = await this.publishShredReceipts(recs.map((r) => r.entityKey), onStep);
     return { ...out, keysDestroyed };
-  }
-
-  /** BFS over blind foreign keys (depth <= 8). Only descendants this vault holds keys for can be shredded by record. */
-  private async withDescendants(roots: string[]): Promise<string[]> {
-    const seen = new Set(roots.map((k) => k.toLowerCase()));
-    let frontier = [...seen];
-    for (let depth = 0; depth < 8 && frontier.length; depth++) {
-      const next: string[] = [];
-      for (const k of frontier) {
-        const r = await this.vault.getRecord(k);
-        if (!r || r.status !== "live") continue;
-        for (const c of (await this.childrenOf(k)).keys) if (!seen.has(c) && (await this.vault.getRecord(c))) { seen.add(c); next.push(c); }
-      }
-      frontier = next;
-    }
-    return [...seen];
   }
 
   /**
@@ -597,9 +737,9 @@ export class ArkivZK {
     if (recs.length === 0) throw new Error("nothing pending");
     onStep("arkiv", "running", "deleting entities + publishing receipts");
     const stillLive = await liveKeys(this.publicClient, recs.flatMap((r) => r.pendingShred!.liveEntities));
-    let results;
+    const txHashes: Hex[] = [], receipts: Hex[] = [], deleted: Hex[] = [];
     try {
-      results = await this.perSigner(recs, (group) => ({
+      await this.perSigner(recs, (group) => ({
         deletes: group.flatMap((r) => r.pendingShred!.liveEntities).filter((k) => stillLive.has(k.toLowerCase())).map((k) => ({ entityKey: k as Hex })),
         creates: group.map((r) => ({
           schema: ShredReceipt,
@@ -610,22 +750,19 @@ export class ArkivZK {
           expiration: ExpirationTime.max(),
           flags: { readonly: true, permissionlessExtension: true },
         })) as any,
-      }));
+      }), async (r) => {
+        txHashes.push(r.res.txHash as Hex);
+        deleted.push(...(r.res.deletedEntities as Hex[]));
+        for (let i = 0; i < r.group.length; i++) {
+          const receiptKey = (r.res.createdEntities[i] as string).toLowerCase() as Hex;
+          receipts.push(receiptKey);
+          const { pendingShred, signerKey, ...rest } = r.group[i];
+          await this.vault.saveRecord({ ...rest, status: "shredded", receiptKey, proofKeys: [] });
+        }
+      });
     } catch (e: any) {
-      onStep("arkiv", "error", e.message);
+      onStep("arkiv", "error", txHashes.length ? `${e.message} (${txHashes.length} tx already succeeded; retry publishes the rest)` : e.message);
       throw e;
-    }
-    const txHashes: Hex[] = [], receipts: Hex[] = [], deleted: Hex[] = [];
-    for (const r of results) {
-      if (!r) continue;
-      txHashes.push(r.res.txHash as Hex);
-      deleted.push(...(r.res.deletedEntities as Hex[]));
-      for (let i = 0; i < r.group.length; i++) {
-        const receiptKey = (r.res.createdEntities[i] as string).toLowerCase() as Hex;
-        receipts.push(receiptKey);
-        const { pendingShred, signerKey, ...rest } = r.group[i];
-        await this.vault.saveRecord({ ...rest, status: "shredded", receiptKey, proofKeys: [] });
-      }
     }
     onStep("arkiv", "done", `${txHashes.length} tx: ${txHashes.map((h) => h.slice(0, 10) + "…").join(", ")}`);
     return { txHashes, receipts, deleted, level: "record" as ShredLevel };
@@ -660,6 +797,7 @@ export class ArkivZK {
         zeroize(ckey);
         r.fields = rec.fields;
         r.createdAt = rec.createdAt;
+        if (rec.parents?.length) (r as any)._parents = rec.parents;
         await this.vault.saveRecord(r);
         if (!(await this.vault.getCollection(collectionId)))
           await this.vault.saveCollection({ collectionId, schemaId: r.schemaId, epoch: r.epoch, expiresAtMs: r.expiresAtMs, status: "live" });
@@ -668,6 +806,16 @@ export class ArkivZK {
       } catch (err: any) {
         step(`skipped ${e.$key}: ${err.message}`);
       }
+    }
+    // relations: plaintext stores parent recordIds; map them to entity keys now that all rows are known
+    const all = await this.vault.listRecords();
+    const byRecordId = new Map(all.map((x) => [x.recordId, x.entityKey]));
+    for (const x of all) {
+      const ps = (x as any)._parents as { recordId: string; relation: string }[] | undefined;
+      if (!ps) continue;
+      delete (x as any)._parents;
+      x.parents = ps.filter((p) => byRecordId.has(p.recordId as Hex)).map((p) => ({ ...p, entityKey: byRecordId.get(p.recordId as Hex)! }));
+      await this.vault.saveRecord(x);
     }
     return found;
   }

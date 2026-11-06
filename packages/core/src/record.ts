@@ -12,6 +12,8 @@ export type RecordPlaintext = {
   salt: string; // decimal bigint, commitment salt
   createdAt: number;
   attachment?: { name: string; type: string; swarmRef: string; size: number };
+  /** relations to parent records (recordIds), restored on a new device by `recover` */
+  parents?: { recordId: string; relation: string }[];
 };
 
 export function encodeRecord(r: RecordPlaintext): Uint8Array {

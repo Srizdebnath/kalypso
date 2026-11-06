@@ -23,8 +23,9 @@ export class LeaseManager {
   }
 
   /** Extend records by `seconds` from their current expiry (capped at Arkiv's max lifetime from now). */
-  async renew(entityKeys: string[], seconds: number, step: (s: string) => void = () => {}) {
+  async renew(entityKeys: string[], seconds: number, step: (s: string) => void = () => {}, opts: { cascade?: boolean } = {}) {
     if (seconds <= 0) throw new Error("seconds must be positive");
+    if (opts.cascade) entityKeys = await this.zk.descendantsOf(entityKeys);
     const recs: VaultRecord[] = [];
     for (const k of entityKeys) {
       const r = await this.zk.vault.getRecord(k);
@@ -36,8 +37,25 @@ export class LeaseManager {
     const plan = recs.map((r) => {
       let target = BigInt(r.expiresAtBlock) + BigInt(Math.ceil(seconds / BLOCK_SECONDS));
       if (target > maxBlock) target = maxBlock;
-      return { r, target, ms: Date.now() + Number(target - now) * BLOCK_SECONDS * 1000 };
+      return { r, target, ms: 0 };
     });
+    // referential rule: a child never outlives its parents (parent's new target if renewed now, else its current expiry)
+    const byKey = new Map(plan.map((p) => [p.r.entityKey.toLowerCase(), p]));
+    for (let pass = 0; pass < 8; pass++) {
+      let changed = false;
+      for (const p of plan) for (const par of p.r.parents ?? []) {
+        const pp = byKey.get(par.entityKey.toLowerCase());
+        let parentExp = p.target;
+        if (pp) parentExp = pp.target;
+        else {
+          const pr = await this.zk.vault.getRecord(par.entityKey);
+          if (pr?.status === "live") parentExp = BigInt(pr.expiresAtBlock); // a dead parent (orphan) imposes no cap
+        }
+        if (parentExp < p.target) { p.target = parentExp; changed = true; }
+      }
+      if (!changed) break;
+    }
+    for (const p of plan) p.ms = Date.now() + Number(p.target - now) * BLOCK_SECONDS * 1000;
 
     step("Extending key leases on guardians (record keys + collection keys)…");
     // one batched call per guardian, both in parallel: O(1) round trips for k records

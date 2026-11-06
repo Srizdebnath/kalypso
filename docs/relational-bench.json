@@ -1,0 +1,40 @@
+{
+  "at": "2026-11-06T22:58:22.461Z",
+  "signer": "0xBc670380edc8Ac07E91ca68cD6ac2Adf27881162",
+  "atomicInsert": {
+    "rows": 4,
+    "txs": 1,
+    "ms": 11521,
+    "gasUsed": "624808"
+  },
+  "oneToMany": {
+    "queries": 1,
+    "ms": 387
+  },
+  "manyToMany": {
+    "queries": 1,
+    "ms": 521
+  },
+  "nPlusOne": {
+    "parents": 5,
+    "naiveQueries": 5,
+    "naiveMs": 1826,
+    "batchedQueries": 1,
+    "batchedMs": 389
+  },
+  "recovery": {
+    "records": 14,
+    "ms": 7309,
+    "relationsRestored": true
+  },
+  "cascadeRenew": {
+    "txs": 1,
+    "entities": 3,
+    "ms": 10984
+  },
+  "cascadeShred": {
+    "entities": 3,
+    "txs": 1,
+    "ms": 10620
+  }
+}

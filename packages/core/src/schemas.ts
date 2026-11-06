@@ -31,6 +31,8 @@ export const ZkRecord = defineSchema("arkivzk.record.v1", {
   r8: str().indexed().optional(),
   // blind foreign key: HMAC(owner relation key, parent recordId). Owner can JOIN parent -> children.
   rel: str().indexed().optional(),
+  // second blind foreign key: a record with two parents is a junction row (many-to-many)
+  rel2: str().indexed().optional(),
 });
 
 /** A ZK proof about a record. */
