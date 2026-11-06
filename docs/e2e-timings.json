@@ -1,0 +1,28 @@
+{
+  "at": "2026-11-06T21:40:41.465Z",
+  "ctBytes": 1052,
+  "proofBytes": 14656,
+  "timings": {
+    "put (commit + encrypt + guardians + Arkiv tx)": 9996,
+    "get (2 shares + decrypt)": 403,
+    "prove + publish": 8088,
+    "verify (public, no keys)": 1238,
+    "search (blind index)": 366,
+    "query proofsAddressedTo": 419,
+    "renew": 6658,
+    "shred (guardians + one Arkiv tx)": 9758,
+    "shred epoch": 9249,
+    "put (ephemeral signer, incl. relayer funding)": 17103,
+    "shred (ephemeral)": 16287
+  },
+  "gasUsed": {
+    "put": "196679",
+    "prove (proof + first VK)": "575746",
+    "renew (2 extensions)": "78157",
+    "shred (2 deletes + 1 receipt)": "792641"
+  },
+  "entity": "0xb1c640867f0ec118994e5fecc55a8de34f8a45c9be496525f6eafa2f5e0c068e",
+  "proofEntity": "0x74f53cd40432339b2e9b5e07f96026f55f42d6647632a9a8bdee66df46104fa8",
+  "receipt": "0x5257a663ad161985d8a85a10529de28a7982a97ee568bba65d0e73ba069b41fc",
+  "signer": "0xBc670380edc8Ac07E91ca68cD6ac2Adf27881162"
+}

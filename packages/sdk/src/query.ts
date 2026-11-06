@@ -1,5 +1,6 @@
 import type { PublicArkivClient, Schema } from "@arkiv-network/sdk";
 import { and, or, eq, gt, gte, lt, lte, between, startsWith, asc } from "@arkiv-network/sdk/query";
+import { key, addr, u64 } from "@arkiv-network/sdk";
 import { APP, ZkProof, ZkRecord } from "@arkivzk/core";
 import { audienceFor } from "./statement.js";
 
@@ -50,8 +51,26 @@ function columnsOf(s: Schema): Record<string, { isIndexed: boolean; type: string
 }
 const schemaName = (s: Schema) => String((s as any).name?.value ?? (s as any).name ?? "untagged");
 
-function toExpressions(field: string, v: unknown) {
-  const op: Op = isOp(v) ? v : { eq: v };
+/** System attributes have fixed types in SDK 1.0: wrap raw values so `$key = "0x…"` is not sent as a str. */
+function sysValue(field: string, x: unknown): unknown {
+  if (x === undefined || x === null || typeof x === "object") return x;
+  if (field === "$key") return key(String(x) as `0x${string}`);
+  if (field === "$owner" || field === "$creator") return addr(String(x) as `0x${string}`);
+  if (field === "$expiresAt") return u64(BigInt(x as any));
+  return x;
+}
+
+function toExpressions(field: string, raw: unknown) {
+  const w = (x: unknown) => sysValue(field, x);
+  const r: Op = isOp(raw) ? raw : { eq: raw };
+  const op: Op = {
+    ...r,
+    ...(r.eq !== undefined ? { eq: w(r.eq) } : {}), ...(r.gt !== undefined ? { gt: w(r.gt) } : {}),
+    ...(r.gte !== undefined ? { gte: w(r.gte) } : {}), ...(r.lt !== undefined ? { lt: w(r.lt) } : {}),
+    ...(r.lte !== undefined ? { lte: w(r.lte) } : {}),
+    ...(r.between ? { between: [w(r.between[0]), w(r.between[1])] as any } : {}),
+    ...(r.in ? { in: r.in.map(w) } : {}),
+  };
   const out: any[] = [];
   if (op.eq !== undefined) out.push(eq(field, op.eq as any));
   if (op.gt !== undefined) out.push(gt(field, op.gt as any));
@@ -145,7 +164,7 @@ export class QueryPlanner {
       let cursor: string | undefined;
       for (;;) {
         const exprs = Object.entries(w).flatMap(([f, v]) => toExpressions(f, v));
-        if (cursor) exprs.push(gt("$key", cursor as any));
+        if (cursor) exprs.push(gt("$key", key(cursor as `0x${string}`) as any));
         let q: any = this.pc.select(selection as any).from(spec.from);
         if (exprs.length) q = q.where(and(...exprs));
         if (spec.ownedBy) q = q.ownedBy(spec.ownedBy);

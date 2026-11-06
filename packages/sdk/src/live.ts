@@ -1,5 +1,6 @@
 import type { PublicArkivClient } from "@arkiv-network/sdk";
 import { eq, or } from "@arkiv-network/sdk/query";
+import { key } from "@arkiv-network/sdk";
 
 const CHUNK = 20;
 
@@ -14,7 +15,7 @@ export async function liveKeys(pc: PublicArkivClient, keys: string[]): Promise<M
   const chunks = Array.from({ length: Math.ceil(uniq.length / CHUNK) }, (_, i) => uniq.slice(i * CHUNK, (i + 1) * CHUNK));
   await Promise.all(chunks.map(async (c) => {
     const res = await pc.select({ $key: true, $expiresAt: true })
-      .where(c.length === 1 ? eq("$key", c[0] as any) : or(...c.map((k) => eq("$key", k as any))))
+      .where(c.length === 1 ? eq("$key", key(c[0] as `0x${string}`)) : or(...c.map((k) => eq("$key", key(k as `0x${string}`)))))
       .limit(100).fetch();
     for (const e of res.entities) out.set(String(e.$key).toLowerCase(), e.$expiresAt as bigint);
   }));

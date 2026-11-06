@@ -141,4 +141,23 @@ Example k=10, p=1: 30 txs → 1 tx. Reserved gas cap 30,000,000 → 12,600,000 (
 
 Filled from `docs/e2e-timings.json` by running `node packages/sdk/e2e.mjs` against Rabdi with real guardians.
 
-_Live numbers will be added after the first funded run._
+Run of 2026-11-06 (UTC), signer `0xBc670380edc8Ac07E91ca68cD6ac2Adf27881162`, two local guardian processes, Rabdi gasPrice 1 gwei. Wall-clock times include waiting for the receipt (Rabdi block time 2 s).
+
+| Step | Wall time | Gas used | Notes |
+|---|---|---|---|
+| `put` (commit + encrypt + 2 guardians + 1 tx) | 10.0 s | 196,679 | ciphertext on chain: 1,052 B (padded bucket) |
+| `get` (2 shares + decrypt) | 0.40 s | – | no transaction |
+| `prove` + publish, **first proof ever** (proof + VK registry entry) | 10.6 s | 1,379,044 | VK written once |
+| `prove` + publish, VK already registered | 8.1 s | **575,746** | −58% gas: VK not re-uploaded (§3.3) |
+| `verifyProofEntity` (public, no keys) | 1.2 s | – | 9 checks, all pass |
+| `search` (blind index, 1 month) | 0.37 s | – | 1 query |
+| `proofsAddressedTo` | 0.42 s | – | 1 query |
+| `renew` record + proof (+ both guardians) | 6.7 s | 78,157 | 2 extensions in **1 tx** |
+| `shred` (guardians + 2 deletes + 1 receipt, **1 tx**) | 9.8 s | 792,641 | |
+| `shredEpoch` (collection key, 2 keys destroyed) | 9.2 s | – | second record became undecryptable without touching it |
+| `put` in ephemeral mode (incl. relayer funding tx) | 17.1 s | – | 2 sequential txs: funding + create |
+| `shred` in ephemeral mode | 16.3 s | – | funding + delete/receipt |
+
+Proof size on chain: 14,656 B. After the shred, the archive-capture step re-read the ciphertext an archive node would keep and tried to decrypt it. Both guardians answered "no share", the device shares were gone, and decryption failed. Three receipts from this run are live and checkable with `node packages/sdk/query-receipts.mjs`.
+
+Where the time goes: almost all of `put`/`prove`/`shred` is waiting for block inclusion and the receipt (2–5 blocks). The crypto itself is in §2 (prove 370–640 ms, the rest < 20 ms).

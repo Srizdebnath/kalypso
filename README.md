@@ -36,6 +36,30 @@ or archive indexer that synced the old blocks still holds the bytes forever.
 | Blind-index exact-match search on encrypted fields | ✅ implemented |
 | TEE-attested guardians | ❌ not implemented: needs SGX/TDX/Nitro hardware we don't have. Guardians are trusted via signatures + 2-of-3 threshold only. |
 
+## Live on Arkiv Rabdi (chain 7794095)
+
+| | |
+|---|---|
+| Wallet used for the live run | `0xBc670380edc8Ac07E91ca68cD6ac2Adf27881162` |
+| Relayer pool (ephemeral mode) | `0x63aa5184a1C53b64eDE7F5DDF1f2C6D256f3b1C8` |
+| One-time signer that owned an ephemeral record | `0x8aaCdA6D1875cA954A8FE9767FE62f233D8064A7` |
+| Shred receipt entity | `0x5257a663ad161985d8a85a10529de28a7982a97ee568bba65d0e73ba069b41fc` |
+| Epoch shred receipt entity | `0xf309ad37f75fdf7c2996ee0d360c2c25af5c14abcf3b7ca65d7bde8dba15dfbf` |
+
+Full run (12 steps, all passed): `node packages/sdk/e2e.mjs`. Timings and gas: [docs/07 §4](docs/07-performance.md#4-measured-live-on-arkiv-rabdi).
+
+**Runnable query** (read-only, no wallet): lists arkivzk shred receipts and verifies each one's signatures.
+
+```bash
+pnpm install && pnpm build
+ARKIV_ACCESS_KEY=<your key> node packages/sdk/query-receipts.mjs
+```
+
+```ts
+pc.select({ $key: true, $owner: true, recordKey: true, level: true, shreddedAt: true })
+  .from(ShredReceipt).where(eq("app", "arkivzk")).limit(10).fetch()
+```
+
 ## Read in this order
 
 1. [docs/01-idea.md](docs/01-idea.md) – the pitch, threat model, what we promise and what we don't

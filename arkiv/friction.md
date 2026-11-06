@@ -23,3 +23,9 @@ Each entry: what we expected, what happened, how to reproduce.
 ## 4. Access key lives in the RPC URL path
 - **Expected:** header-based auth so keys don't leak into logs, error messages, and browser wallets' RPC config.
 - **Happened:** `rabdi({ accessKey })` puts the key in the URL; any viem error that prints the URL prints the key. We had to build a server-side `/api/rpc` proxy so the browser never sees it.
+
+## 5. `$key` filters reject plain hex strings at runtime only
+- **Expected:** `eq("$key", "0x…")` to work like other string filters, or a compile-time error.
+- **Happened:** it type-checks (with a cast) but throws at query time: `"$key" is a key, but the value is a str. System attributes have a fixed type — write key(...) around the value.` The message is clear, but our query layer only hit it on the first live run, inside `renew`. Same rule applies to `$owner`/`$creator` (`addr(...)`) and `$expiresAt` (`u64(...)`).
+- **Fix in arkivzk:** `liveKeys` and `QueryPlanner` now wrap system-field values (`key`, `addr`, `u64`) automatically, including keyset cursors (`gt("$key", key(cursor))`).
+- **Repro:** `pc.select({ $key: true }).where(eq("$key", "0x" + "00".repeat(32) as any)).fetch()`.
