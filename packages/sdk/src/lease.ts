@@ -2,6 +2,7 @@ import { ExpirationTime, MAX_LIFETIME } from "@arkiv-network/sdk";
 import { guardedBatch } from "@arkivzk/core";
 import type { VaultRecord } from "@arkivzk/vault";
 import type { ArkivZK } from "./arkivzk.js";
+import { liveKeys } from "./live.js";
 
 type Hex = `0x${string}`;
 const BLOCK_SECONDS = 2;
@@ -40,28 +41,23 @@ export class LeaseManager {
     });
 
     step("Extending key leases on guardians…");
-    // one call per guardian per distinct target is fine; group all records by target expiry
-    for (const g of this.zk.cfg.guardians) {
-      for (const p of plan) await g.extend(this.zk.vault, [p.r.recordId], p.ms + 60_000);
-    }
+    // one batched call per guardian, both guardians in parallel: O(1) round trips for k records
+    const items = plan.map((p) => ({ recordId: p.r.recordId, expiresAt: p.ms + 60_000 }));
+    await Promise.all(this.zk.cfg.guardians.map((g) => g.extend(this.zk.vault, items)));
 
     step("Extending record + proofs on Arkiv in one transaction (confirm in wallet)…");
-    const extensions: { entityKey: Hex; expiration: ReturnType<typeof ExpirationTime.atBlock> }[] = [];
-    for (const p of plan) {
-      for (const k of [p.r.entityKey, ...p.r.proofKeys]) {
-        try {
-          await this.zk.publicClient.getEntity(k as Hex);
-          extensions.push({ entityKey: k as Hex, expiration: ExpirationTime.atBlock(p.target) });
-        } catch { /* proof already expired/deleted */ }
-      }
-    }
+    const live = await liveKeys(this.zk.publicClient, plan.flatMap((p) => [p.r.entityKey, ...p.r.proofKeys]));
+    const extensions = plan.flatMap((p) =>
+      [p.r.entityKey, ...p.r.proofKeys].filter((k) => live.has(k.toLowerCase()))
+        .map((k) => ({ entityKey: k as Hex, expiration: ExpirationTime.atBlock(p.target) })));
     const res = await guardedBatch(this.zk.cfg.write, { extensions });
+    const after = await liveKeys(this.zk.publicClient, plan.map((p) => p.r.entityKey));
+    const blockNow = await this.zk.publicClient.getBlockNumber();
     for (const p of plan) {
-      const e = await this.zk.publicClient.getEntity(p.r.entityKey as Hex);
-      const blockNow = await this.zk.publicClient.getBlockNumber();
+      const exp = after.get(p.r.entityKey.toLowerCase()) ?? p.target;
       await this.zk.vault.saveRecord({
-        ...p.r, expiresAtBlock: e.$expiresAt.toString(),
-        expiresAtMs: Date.now() + Number(e.$expiresAt - blockNow) * BLOCK_SECONDS * 1000,
+        ...p.r, expiresAtBlock: exp.toString(),
+        expiresAtMs: Date.now() + Number(exp - blockNow) * BLOCK_SECONDS * 1000,
       });
     }
     return { txHash: res.txHash as Hex, extended: extensions.length };

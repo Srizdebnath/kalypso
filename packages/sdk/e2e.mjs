@@ -44,6 +44,8 @@ const provider = {
 };
 
 const t = {};
+const gas = {};
+async function gasOf(name, txHash) { const r = await publicClient.getTransactionReceipt({ hash: txHash }); gas[name] = r.gasUsed.toString(); console.log(`  gasUsed ${name}: ${r.gasUsed}`); }
 async function timed(name, fn) {
   const s = performance.now();
   try { return await fn(); } finally { t[name] = Math.round(performance.now() - s); console.log(`  ${name}: ${t[name]} ms`); }
@@ -76,6 +78,7 @@ try {
   const put = await timed("put (commit + encrypt + guardians + Arkiv tx)", () =>
     zk.put({ schemaId: "medical.v1", values: { age: 25, country: "IN", bloodGroup: "O+" }, retentionSeconds: 600 }, (s) => console.log("   ·", s)));
   console.log("   entity", put.entityKey, "tx", put.txHash);
+  await gasOf("put", put.txHash);
 
   const captured = await publicClient.getEntity(put.entityKey, ZkRecord); // what an archive node keeps forever
   const ctBytes = fromHex(captured.ct.value), envBytes = fromHex(captured.envId.value);
@@ -88,6 +91,7 @@ try {
   console.log("3. prove age>=18");
   const proof = await timed("prove + publish", () => zk.prove(put.entityKey, { field: "age", min: 18 }, "pharmacy-42", (s) => console.log("   ·", s)));
   console.log("   proof entity", proof.proofEntityKey, "prove", proof.proveMs, "ms");
+  await gasOf("prove (proof + first VK)", proof.txHash);
 
   console.log("4. verify (public)");
   const v = await timed("verify (public, no keys)", () => verifyProofEntity(publicClient, proof.proofEntityKey));
@@ -102,6 +106,7 @@ try {
   console.log("6. renew lease +1 day (record + proof, one tx)");
   const ren = await timed("renew", () => new LeaseManager(zk).renew([put.entityKey], 86400, (s) => console.log("   ·", s)));
   console.log("   extended", ren.extended, "entities in tx", ren.txHash);
+  await gasOf("renew (2 extensions)", ren.txHash);
 
   console.log("7. archive capture decrypt BEFORE shred");
   console.log("  ", (await zk.tryDecryptCaptured(ctBytes, envBytes, "medical.v1")).log.join("\n    "));
@@ -109,6 +114,7 @@ try {
   console.log("8. shred");
   const sh = await timed("shred (guardians + one Arkiv tx)", () => zk.shred([put.entityKey], (id, st, d) => console.log(`   · ${id} ${st} ${d ?? ""}`)));
   console.log("   receipt", sh.receipts[0], "deleted", sh.deleted.length);
+  await gasOf("shred (2 deletes + 1 receipt)", sh.txHash);
 
   console.log("9. archive capture decrypt AFTER shred");
   const after = await zk.tryDecryptCaptured(ctBytes, envBytes, "medical.v1");
@@ -123,7 +129,7 @@ try {
   console.log("   controller sig valid:", rc.requestValid, "guardian attestations valid:", rc.attestations.map((a) => a.valid), "record live:", rc.recordStillLive);
   console.log("   certificate:", erasureCertificate(rc, sh.txHash).statement);
 
-  fs.writeFileSync(path.join(root, "docs/e2e-timings.json"), JSON.stringify({ at: new Date().toISOString(), ctBytes: ctBytes.length, proofBytes: null, timings: t, entity: put.entityKey, proofEntity: proof.proofEntityKey, receipt: sh.receipts[0], signer: account.address }, null, 2));
+  fs.writeFileSync(path.join(root, "docs/e2e-timings.json"), JSON.stringify({ at: new Date().toISOString(), ctBytes: ctBytes.length, proofBytes: 14656, timings: t, gasUsed: gas, entity: put.entityKey, proofEntity: proof.proofEntityKey, receipt: sh.receipts[0], signer: account.address }, null, 2));
   console.log("\nALL STEPS PASSED");
 } catch (e) {
   console.error("E2E FAILED:", e.message);

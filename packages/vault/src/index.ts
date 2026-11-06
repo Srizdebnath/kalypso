@@ -277,9 +277,10 @@ export class GuardianClient {
     }
   }
 
-  async extend(vault: Vault, recordIds: string[], expiresAt: number): Promise<ExtendedAttestation> {
+  /** One round trip for any number of records, each with its own new expiry. */
+  async extend(vault: Vault, items: { recordId: string; expiresAt: number }[]): Promise<ExtendedAttestation> {
     const info = await this.info();
-    const body: ExtendRequestBody = { recordIds, controller: vault.controller, expiresAt, nonce: toHex(randomBytes(16)), ts: Date.now() };
+    const body: ExtendRequestBody = { items, controller: vault.controller, nonce: toHex(randomBytes(16)), ts: Date.now() };
     const att = await this.call<ExtendedAttestation>("POST", "/shares/extend", { ...body, sig: vault.sign(DOMAIN.extend, body) });
     const { sig, ...rest } = att;
     if (att.guardian !== info.signPublicKey || !verifyPayload(fromHex(info.signPublicKey), DOMAIN.extended, rest, fromHex(sig)))

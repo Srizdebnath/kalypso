@@ -71,7 +71,7 @@ export type DestroyedAttestationBody = {
 export type DestroyedAttestation = DestroyedAttestationBody & { sig: string };
 
 /** Lease renewal: keys must live exactly as long as the data on Arkiv. */
-export type ExtendRequestBody = { recordIds: string[]; controller: string; expiresAt: number; nonce: string; ts: number };
+export type ExtendRequestBody = { items: { recordId: string; expiresAt: number }[]; controller: string; nonce: string; ts: number };
 export type ExtendRequest = ExtendRequestBody & { sig: string };
 export type ExtendedAttestation = {
   guardian: string;

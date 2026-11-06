@@ -162,17 +162,21 @@ const routes: Record<string, (body: any) => unknown> = {
   },
 
   "POST /shares/extend": (b: ExtendRequest) => {
-    if (!Array.isArray(b.recordIds) || b.recordIds.length === 0 || b.recordIds.length > 256 || !b.recordIds.every(isId) || !Number.isFinite(b.expiresAt))
+    if (!Array.isArray(b.items) || b.items.length === 0 || b.items.length > 256 ||
+      !b.items.every((i) => isId(i?.recordId) && Number.isFinite(i?.expiresAt)))
       throw new HttpError(400, "bad request");
     const { sig, ...body } = b;
     requireSig(b.controller, DOMAIN.extend, body, sig);
     fresh(b.ts, b.nonce);
-    const results = b.recordIds.map((recordId) => {
+    for (const i of b.items) {
+      const s = shares.get(i.recordId);
+      if (s && s.controller !== b.controller) throw new HttpError(403, `not controller of ${i.recordId}`);
+    }
+    const results = b.items.map(({ recordId, expiresAt }) => {
       const s = shares.get(recordId);
       if (!s) return { recordId, status: "absent" as const, expiresAt: 0 };
-      if (s.controller !== b.controller) throw new HttpError(403, `not controller of ${recordId}`);
       // leases only grow; shortening happens by shredding
-      s.expiresAt = Math.max(s.expiresAt, b.expiresAt);
+      s.expiresAt = Math.max(s.expiresAt, expiresAt);
       persist(recordId, s);
       return { recordId, status: "extended" as const, expiresAt: s.expiresAt };
     });

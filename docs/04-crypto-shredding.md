@@ -22,8 +22,8 @@ below exists to make that true.
 | 5 | AES-256-GCM data encryption with AAD = schemaId, epoch, entity nonce | Swap / replay of ciphertexts |
 | 6 | Pad plaintext to size buckets (256B, 1KB, 4KB, 16KB…) | Length fingerprinting of shredded data |
 | 7 | Commitments are hiding (salted); salt shredded with DEK | Commitment brute force (e.g. low-entropy fields like age) |
-| 8 | Blind-index keys rotate per epoch and are shreddable | Searchable linkage after delete |
-| 9 | Ephemeral signer per record, shredded too | Owner linkage after delete |
+| 8 | *(roadmap)* Blind-index keys rotate per epoch and are shreddable | Searchable linkage after delete |
+| 9 | *(roadmap)* Ephemeral signer per record via a relayer | Owner linkage after delete. Today the user's wallet signs, so `$owner` links records to that wallet. |
 | 10 | Every shred produces a signed, public **ShredReceipt** | User trust + auditability |
 
 ## 4.3 Custody: where keys live
@@ -44,6 +44,8 @@ flowchart TB
   is backed by hardware, not just a promise. MVP: a simple Node service with in-memory store.
 
 ## 4.4 Shred levels
+
+> Implemented today: record-level shred (any number of records in one call) and automatic expiry shred. Collection/epoch/account levels below are currently done by shredding every record in that set (same effect, k records in one transaction). Separate collection/epoch keys are roadmap.
 
 ```mermaid
 flowchart LR

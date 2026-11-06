@@ -17,6 +17,24 @@ or archive indexer that synced the old blocks still holds the bytes forever.
 | Delete is not real delete | **Crypto-shredding**: destroy the key, not the data. Old ciphertext on every old node becomes random noise. |
 | "Harvest now, decrypt later" | Hybrid post-quantum key wrapping (ML-KEM-768 + X25519), so archived ciphertext stays safe even later. |
 
+## Status (what is real today)
+
+| Area | Status |
+|---|---|
+| Client-side AES-256-GCM + size-bucket padding | ✅ implemented, tested |
+| Poseidon2 commitments + Noir range/equality proofs (UltraHonk) | ✅ implemented, tested |
+| Public verification with Arkiv-hosted VK registry | ✅ implemented |
+| 2-of-3 key custody, guardians, ML-KEM-768+X25519 share transport | ✅ implemented, tested against real guardian processes |
+| Crypto-shred + signed attestations + on-chain receipt, one atomic tx | ✅ implemented |
+| Lease manager (renew data + keys together, reminders, expiry erasure) | ✅ implemented |
+| Query planner (pushdown, projections, IN-batching, keyset, explain) | ✅ implemented |
+| Archive node indexer (raw calldata capture) | ✅ implemented, captures live Rabdi traffic |
+| Encrypted attachments on Swarm | ✅ implemented, needs a Bee node + postage batch to run |
+| Recovery kit (lost device) | ✅ implemented, tested |
+| Ephemeral per-record signers via relayer | 🛣 roadmap |
+| Blind-index search, epoch/collection keys | 🛣 roadmap |
+| TEE-attested guardians | 🛣 roadmap |
+
 ## Read in this order
 
 1. [docs/01-idea.md](docs/01-idea.md) – the pitch, threat model, what we promise and what we don't
@@ -24,7 +42,9 @@ or archive indexer that synced the old blocks still holds the bytes forever.
 3. [docs/03-zk.md](docs/03-zk.md) – ZK end-to-end design (circuits, commitments, proofs on Arkiv)
 4. [docs/04-crypto-shredding.md](docs/04-crypto-shredding.md) – the deletion design, key hierarchy, shred receipts
 5. [docs/05-mvp-plan.md](docs/05-mvp-plan.md) – what we build first given limited time
-6. [diagrams/](diagrams/) – standalone `.mmd` files (paste into mermaid.live)
+6. [docs/06-sdk-reference.md](docs/06-sdk-reference.md) – every SDK feature with code
+7. [docs/07-performance.md](docs/07-performance.md) – complexity, measurements, before vs after
+8. [diagrams/](diagrams/) – standalone `.mmd` files (paste into mermaid.live)
 
 ## One-line API (target)
 

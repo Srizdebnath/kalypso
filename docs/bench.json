@@ -1,0 +1,25 @@
+{
+  "machine": "11th Gen Intel(R) Core(TM) i3-1115G4 @ 3.00GHz x4, 7 GB, Node v24.10.0",
+  "at": "2026-11-06T20:44:35.114Z",
+  "results": {
+    "aes-256-gcm seal 256 B": 1.6393,
+    "aes-256-gcm seal 4096 B": 1.3124,
+    "aes-256-gcm seal 65536 B": 9.4326,
+    "pad 100 B record -> bucket": 0.0148,
+    "shamir split 32 B, 2-of-3": 0.3712,
+    "shamir combine 2 shares": 0.0417,
+    "ml-kem768+x25519 keygen": 3.789,
+    "hpke seal (share)": 13.3049,
+    "hpke open (share)": 9.9988,
+    "hpke sealed share bytes": 1185,
+    "ed25519 sign": 2.3437,
+    "ed25519 verify": 5.6061,
+    "scrypt N=2^17 (recovery kit)": 1234,
+    "poseidon2 commitment (noir execute)": 3.9,
+    "prove range (UltraHonk, WASM)": 370.4,
+    "verify range": 15.1,
+    "proof bytes": 14656,
+    "vk bytes": 3680,
+    "range circuit gates": null
+  }
+}

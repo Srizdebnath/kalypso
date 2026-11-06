@@ -16,6 +16,7 @@ import {
   computeCommitment, proveRange, rangeVerificationKey, vkHash, RANGE_CIRCUIT_ID, SLOTS,
 } from "@arkivzk/zk";
 import { contextFor, audienceFor, describeClaim, type Claim, type ProofStatement } from "./statement.js";
+import { liveKeys } from "./live.js";
 
 export type Hex = `0x${string}`;
 const BLOCK_SECONDS = 2;
@@ -318,11 +319,9 @@ export class ArkivZK {
       if (attestations.length === 0) throw new Error("no guardian confirmed destruction - nothing was changed, try again");
 
       onStep("device", "running");
+      const liveAll = await liveKeys(this.publicClient, fresh.flatMap((r) => [r.entityKey, ...r.proofKeys]));
       for (const r of fresh) {
-        const live: Hex[] = [];
-        for (const k of [r.entityKey, ...r.proofKeys]) {
-          try { await this.publicClient.getEntity(k as Hex); live.push(k as Hex); } catch { /* expired or gone */ }
-        }
+        const live = [r.entityKey, ...r.proofKeys].filter((k) => liveAll.has(k.toLowerCase())) as Hex[];
         await this.vault.forgetSecrets(r.entityKey, { status: "shredded", pendingShred: { request: req, attestations, liveEntities: live } });
       }
       onStep("device", "done", "device share erased");
@@ -335,10 +334,10 @@ export class ArkivZK {
     const recs = (await Promise.all(entityKeys.map((k) => this.vault.getRecord(k)))).filter((r): r is VaultRecord => !!r?.pendingShred);
     if (recs.length === 0) throw new Error("nothing pending");
     onStep("arkiv", "running", "deleting entities + publishing receipts in one transaction");
-    const deletes: { entityKey: Hex }[] = [];
-    for (const r of recs) for (const k of r.pendingShred!.liveEntities) {
-      try { await this.publicClient.getEntity(k); deletes.push({ entityKey: k }); } catch { /* already gone */ }
-    }
+    // still-live entities only (deleting a missing entity would revert the whole batch)
+    const stillLive = await liveKeys(this.publicClient, recs.flatMap((r) => r.pendingShred!.liveEntities));
+    const deletes = recs.flatMap((r) => r.pendingShred!.liveEntities)
+      .filter((k) => stillLive.has(k.toLowerCase())).map((k) => ({ entityKey: k as Hex }));
     let res;
     try {
       res = await guardedBatch(this.cfg.write, {

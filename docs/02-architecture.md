@@ -72,6 +72,8 @@ Rule: **nothing on Arkiv is ever decryptable without a key that lives off-chain 
 
 ## 2.3 Key hierarchy (the heart of shredding)
 
+> Implemented today: one random DEK per record, split 2-of-3, plus a controller identity key. The epoch/collection layers below are the roadmap design.
+
 ```mermaid
 flowchart TB
     ROOT["User Root Key URK<br/>never stored whole: Shamir / threshold t-of-n"]
@@ -116,7 +118,6 @@ sequenceDiagram
     S->>S: ct = AES-256-GCM(DEK, padded, aad=schemaId|epoch)
     S->>S: C = Poseidon(fields, salt)
     S->>S: blindTag = HMAC(BIX, field value) (optional)
-    S->>S: ephemeral signer key (unlinkable owner)
     S->>A: createEntity zk.record {ct, C, envId, blindTag}
     A-->>S: entityKey + receipt
     opt prove requested
