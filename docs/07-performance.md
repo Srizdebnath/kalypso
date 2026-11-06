@@ -161,3 +161,74 @@ Run of 2026-11-06 (UTC), signer `0xBc670380edc8Ac07E91ca68cD6ac2Adf27881162`, tw
 Proof size on chain: 14,656 B. After the shred, the archive-capture step re-read the ciphertext an archive node would keep and tried to decrypt it. Both guardians answered "no share", the device shares were gone, and decryption failed. Three receipts from this run are live and checkable with `node packages/sdk/query-receipts.mjs`.
 
 Where the time goes: almost all of `put`/`prove`/`shred` is waiting for block inclusion and the receipt (2–5 blocks). The crypto itself is in §2 (prove 370–640 ms, the rest < 20 ms).
+
+---
+
+## 5. Queries: what Arkiv does, what it can't do on encrypted data, and what arkivzk adds
+
+Sources: Arkiv [query language reference](https://docs.arkiv.network/reference/query-language) and [limits](https://docs.arkiv.network/reference/limits), SDK 1.0.1 declarations. Measured numbers below come from two live scripts on Rabdi:
+- `packages/sdk/query-live.mjs`, results in `docs/query-live.json`: the query planner on public metadata.
+- `packages/sdk/query-encrypted.mjs`, results in `docs/query-bench.json`: queries over encrypted fields. It writes real records, checks every answer against the decrypt-everything baseline, then shreds them.
+
+### 5.1 Capability matrix
+
+| Query | Arkiv on **plaintext** attributes | Arkiv on **encrypted** data (values are ciphertext in `bytes`) | arkivzk on encrypted data |
+|---|---|---|---|
+| Equality `f = v` | ✅ `eq` on indexed column | ❌ `bytes` can't be indexed or filtered | ✅ blind index (`search`) |
+| Range `a ≤ f ≤ b` | ✅ `between/gt/lt` | ❌ | ✅ range index (`searchRange`), 0..255 domain |
+| `IN (…)` | ⚠️ no `IN`; write `or(eq…)` by hand, bounded by query-size limit | ❌ | ✅ auto-chunked `IN` (`QueryPlanner`, `proofsFor`, `liveKeys`) |
+| `COUNT(*) WHERE …` | ✅ `client.count()` | ❌ (count of *what*? the values are hidden) | ✅ `count()` over blind/range tags, 0 rows downloaded |
+| `SUM/AVG/MIN/MAX`, `GROUP BY` | ❌ not in the language | ❌ | ⚠️ not server-side; owner computes after decrypt. A *proof* about a value is `prove()` (ZK) |
+| `JOIN` / foreign keys | ❌ no joins; schema is a convention, no FK constraint | ❌ | ✅ blind foreign key `rel` + `childrenOf()` (1 query); public FK `recordKey` for proofs (`proofsFor`, batched) |
+| Cascade delete | ❌ | ❌ | ✅ `shred(keys, …, { cascade: true })`: children found by blind FK, all deleted in **1 tx**, keys destroyed |
+| `ORDER BY` | ✅ one attribute | ⚠️ ordering ciphertext is meaningless | ⚠️ by public fields (`$key`, `$expiresAt`, epoch); value order only after decrypt (deliberate: an order-revealing tag leaks far more) |
+| Prefix `STARTSWITH` | ✅ `str` only | ❌ | ❌ by design (prefix tags would leak string structure) |
+| `NOT`, `!=` | ❌ SDK exports neither | ❌ | ❌ (complement of a range is two ranges: `searchRange` twice) |
+| Pagination | `OFFSET` or keyset on `$key`, max 100 rows/page | same | keyset everywhere, stable under expiry |
+| Explain / plan | ❌ | ❌ | ✅ `QueryPlanner.explain()` (pushdown vs client-side, projection, cost) |
+
+### 5.2 Complexity before vs after, every query optimization
+
+`N` = arkivzk records of that schema, `k` = matching rows, `c` = keys in an `IN`, `E` = months (epochs) searched, `P` = 100 (page size), `|ct|` = ciphertext size (≥ 256 B padded, ≤ 120 KiB).
+
+| Optimization | Before: time / space / Arkiv queries | After: time / space / Arkiv queries | Measured on Rabdi (before → after) |
+|---|---|---|---|
+| Equality on encrypted field | O(N) decrypts + 2N guardian RTTs / O(N·\|ct\|) download / ⌈N/P⌉ | O(E) HMACs + O(k) / O(k) / ⌈3E/18⌉ | 7 records: 3,034 ms, 7 decrypts → **394 ms, 1 query, 0 decrypts** |
+| Range on encrypted field | same as above | O(E·log D) tree cover, ≤ 14 terms per month (D = 256) / O(k) / ⌈14E/18⌉ | 7 records: 3,034 ms, 2,296 B ciphertext → **497 ms, 1 query, 0 B ciphertext**; same 3 hits |
+| COUNT on encrypted field | O(N) decrypts / O(N·\|ct\|) / ⌈N/P⌉ | O(E·log D) / **O(1)** (one number) / ⌈terms/18⌉ | **372 ms, 1 count query, 0 rows** |
+| JOIN parent → children (encrypted FK) | impossible without decrypting every record: O(N) | O(1) HMAC + O(k) / O(k) / ⌈k/P⌉ | **341 ms, 1 query** |
+| Cascade delete parent + children | k+1 separate txs, children found by O(N) scan | 1 BFS query per level + **1 tx** | parent + child: **1 tx**, both keys destroyed, child gone from Arkiv |
+| `IN` lookup of c keys (`proofsFor`) | c queries | ⌈c/20⌉ queries | c = 45: **45 → 3 queries** (−93%) |
+| Existence of c keys (`liveKeys`) | c `getEntity` calls | ⌈c/20⌉ queries | c = 45: **45 → 3 queries**, 467 ms total |
+| List records (projection) | every column incl. ciphertext: O(N·\|ct\|) | metadata only: O(N·m), m ≈ 170 B | 1 record: **2,432 B → 167 B** (−93%); the gap grows with \|ct\| up to 120 KiB |
+| Paging | `OFFSET`: rows shift if an entity expires between pages (skips/duplicates) | keyset on `$key`: O(1) per page, stable | page size 1 vs 100 over 10 rows: **identical order**, 11 vs 1 queries |
+| Non-indexed filter | silent full scan | `explain()` warns before running | – |
+| Quota (10 units/query) | grows with N (scan) or c | divided by P or 20 | 45-key lookup: 450 → 30 units |
+
+**How "before" scales** (measured per-record cost × N; the "after" query count doesn't grow with N, only with matches k):
+
+| N records | Before: download + decrypt everything | After: range/equality/count |
+|---|---|---|
+| 7 (measured) | 3.0 s, 7 decrypts, 14 guardian RTTs, 2.3 KB | 0.4–0.5 s, 1 query |
+| 1,000 (extrapolated, 433 ms/record) | ~7 min, 2,000 guardian RTTs, ≥ 328 KB (up to 120 MB) | 1 query + ⌈k/100⌉ pages |
+| 10,000 (extrapolated) | ~72 min, 20,000 guardian RTTs, ≥ 3.3 MB | 1 query + ⌈k/100⌉ pages |
+
+The "before" path also needs every record's keys to still exist, so a third party can never run it. The "after" tags can be computed by anyone holding the per-month search key, which can be handed out separately from the decryption keys.
+
+### 5.3 How the encrypted range index works
+
+- **Write:** for one numeric field `v ∈ [0, 255]`, store 8 tags `r_l = HMAC(K_month, field‖l‖(v >> (8−l)))`, for l = 1..8. Each tag is the node containing `v` at that tree level. Cost is 8 HMACs and 8 indexed `str` columns.
+- **Query:** the canonical cover of `[a, b]` is the minimal set of tree nodes whose buckets exactly tile the range. It has at most 2 nodes per level and **at most 14 in total**: we checked all 32,896 ranges exhaustively, and every cover is exact with no overlap. Each node becomes one `eq("r_l", tag)` term, and Arkiv ORs them server-side.
+- **Count:** the same terms go into `client.count()`. A record matches exactly one node, so there is no double counting.
+- **Key scope:** `K_month = HKDF(envSecret, schema|month)`, so tags from different months can't be linked. Shredding the identity removes the ability to compute them.
+
+### 5.4 What this leaks (stated plainly)
+
+| Index | Visible to anyone reading Arkiv | Not visible |
+|---|---|---|
+| Blind equality tag | which of *your* records in the same month share a value (equality pattern) | the value; links across months; other users' tags |
+| Range tags | which of your records in the same month fall in the same bucket at each of 8 granularities, i.e. **approximate order within a month** | the values, the bounds you query (only which tags are asked for, if someone watches your RPC) |
+| Blind FK `rel` | which records are siblings (same parent tag) | which record is the parent; the parent's recordId |
+| No index (default) | nothing beyond size bucket, epoch, schemaId | everything |
+
+Indexes are opt-in per field (`searchable`, `rangeField`, `parent`). Leave them off for fields where even equality patterns are sensitive.

@@ -219,6 +219,42 @@ const { keys, queries } = await zk.search("medical.v1", "country", "in");   // n
 
 Tag = `HMAC(HKDF(envSecret, schemaId‖month), field ‖ 0x00 ‖ value)` in indexed columns `bix0..bix2`. Arkiv only sees random-looking tags. Leakage, stated plainly: two of **your** records in the same month with the same value get the same tag, so equality is visible within that month. Across months and across users, tags don't link.
 
+## 8e. Range, COUNT, JOIN and cascade on encrypted data
+
+```ts
+// write: one numeric field (integer 0..255) range-indexed, and an optional parent (blind foreign key)
+const visit = await zk.put({ schemaId: "medical.v1", values: { age: 30, country: "IN" }, rangeField: "age", searchable: ["country"], retentionSeconds });
+const lab   = await zk.put({ schemaId: "lab.v1", values: { age: 30, hb: 13 }, parent: visit.entityKey, retentionSeconds });
+
+// range: Arkiv evaluates <= 14 OR terms per month; it never sees 18, 40 or any age
+const { keys, queries, nodes } = await zk.searchRange("medical.v1", "age", 18, 40);
+
+// COUNT without downloading a single row (Arkiv's native count over the tags)
+const { count } = await zk.count("medical.v1", "age", { min: 18, max: 40 });
+const { count: inIndia } = await zk.count("medical.v1", "country", { eq: "IN" });
+
+// JOIN parent -> children (1 indexed query + keyset pages)
+const { keys: children } = await zk.childrenOf(visit.entityKey);
+
+// cascade: parent + all descendants this vault holds, keys destroyed, ONE Arkiv tx
+await zk.shred([visit.entityKey], onStep, { cascade: true });
+```
+
+| Method | Time | Space | Arkiv queries |
+|---|---|---|---|
+| `searchRange(min,max)` over E months | O(E·log 256) HMACs + O(k) | O(k) | ⌈14E/18⌉ (+ pages) |
+| `count(...)` | O(E·log 256) | O(1) | ⌈terms/18⌉ count queries |
+| `childrenOf(parent)` | O(1) HMAC + O(k) | O(k) | ⌈k/100⌉ |
+| `shred(..., {cascade})` | O(depth) BFS queries + O(k) | O(k) | 1 per node visited, **1 tx** |
+
+Live results (`node packages/sdk/query-encrypted.mjs`, docs/query-bench.json):
+- range `[18,40]` over 7 encrypted records: 497 ms, 1 query, 0 bytes of ciphertext downloaded. The decrypt-everything baseline took 3,034 ms, 7 decrypts and 2,296 B, and returned the identical result set.
+- count: 372 ms.
+- join: 341 ms.
+- cascade shred of parent + child: 1 tx.
+
+Full comparison against Arkiv's native query language, and what each index leaks: [07 §5](07-performance.md#5-queries-what-arkiv-does-what-it-cant-do-on-encrypted-data-and-what-arkivzk-adds).
+
 ## 9. Recovery (lost device)
 
 ```ts

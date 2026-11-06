@@ -1,6 +1,10 @@
 export function errorMessage(e: unknown): string {
-  if (e instanceof Error) return e.message;
-  if (typeof e === "string") return e;
+  if (e instanceof Error) {
+    if (typeof console !== "undefined") console.error(e);
+    const cause = (e as { cause?: unknown }).cause;
+    return e.message || (cause ? errorMessage(cause) : "") || e.name || "Unknown error (no message)";
+  }
+  if (typeof e === "string") return e || "Unknown error (no message)";
   try {
     return JSON.stringify(e);
   } catch {

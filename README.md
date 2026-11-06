@@ -34,6 +34,7 @@ or archive indexer that synced the old blocks still holds the bytes forever.
 | Ephemeral per-record signers + gas relayer (records unlinkable to your wallet) | ✅ implemented |
 | Two-level keys: collection (schema × month) key + record key; epoch & account shred | ✅ implemented |
 | Blind-index exact-match search on encrypted fields | ✅ implemented |
+| Range search, COUNT, JOIN (blind foreign key) and cascade shred on encrypted fields | ✅ implemented, checked live against decrypt-everything ([07 §5](docs/07-performance.md#5-queries-what-arkiv-does-what-it-cant-do-on-encrypted-data-and-what-arkivzk-adds)) |
 | TEE-attested guardians | ❌ not implemented: needs SGX/TDX/Nitro hardware we don't have. Guardians are trusted via signatures + 2-of-3 threshold only. |
 
 ## Live on Arkiv Rabdi (chain 7794095)

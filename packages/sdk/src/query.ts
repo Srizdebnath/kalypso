@@ -109,7 +109,7 @@ export class QueryPlanner {
       const indexed = SYSTEM.has(f) || cols[f]?.isIndexed;
       if (!SYSTEM.has(f) && !cols[f]) throw new Error(`unknown column ${f} (columns: ${Object.keys(cols).join(", ")})`);
       (indexed ? pushdown : clientSide).push(`${f} ${JSON.stringify(v, (_, x) => (typeof x === "bigint" ? x.toString() : x))}`);
-      if (!indexed) warnings.push(`"${f}" is not indexed: filtered client-side after fetching`);
+      if (!indexed) warnings.push(`"${f}" is not indexed: filtered client-side after fetching every row that matches the indexed filters (index it if this query is hot)`);
     }
     if (spec.ownedBy) pushdown.push(`$owner = ${spec.ownedBy}`);
     if (spec.filter) clientSide.push("custom filter()");

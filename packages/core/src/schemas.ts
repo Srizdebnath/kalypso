@@ -19,6 +19,18 @@ export const ZkRecord = defineSchema("arkivzk.record.v1", {
   bix0: str().indexed().optional(),
   bix1: str().indexed().optional(),
   bix2: str().indexed().optional(),
+  // range index for ONE numeric field (0..255): r{l} = HMAC(collection key, field|level|value >> (8-l)).
+  // A range [a,b] becomes <= 14 equality terms on these columns (binary interval tree cover).
+  r1: str().indexed().optional(),
+  r2: str().indexed().optional(),
+  r3: str().indexed().optional(),
+  r4: str().indexed().optional(),
+  r5: str().indexed().optional(),
+  r6: str().indexed().optional(),
+  r7: str().indexed().optional(),
+  r8: str().indexed().optional(),
+  // blind foreign key: HMAC(owner relation key, parent recordId). Owner can JOIN parent -> children.
+  rel: str().indexed().optional(),
 });
 
 /** A ZK proof about a record. */

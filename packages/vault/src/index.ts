@@ -119,6 +119,10 @@ export type VaultRecord = {
   receiptKey?: `0x${string}`;
   /** set between "keys destroyed" and "receipt published on Arkiv", so publishing can be retried */
   pendingShred?: { request: ShredRequest; attestations: DestroyedAttestation[]; liveEntities: `0x${string}`[] };
+  /** parent entity key if this record was created as a child (blind foreign key on Arkiv) */
+  parentKey?: `0x${string}`;
+  /** field indexed for range queries */
+  rangeField?: string;
 };
 
 type Identity = { controllerSk: string; envSecret: string; createdAt: number };
@@ -197,6 +201,18 @@ export class Vault {
     const k = hkdf(sha256, fromHex(this.id.envSecret), undefined, utf8(`arkivzk/bix/v1|${schemaId}|${epoch}`), 32);
     const norm = typeof value === "string" ? value.trim().toLowerCase() : String(value);
     return toHex(hmac(sha256, k, utf8(`${field}\0${norm}`)));
+  }
+
+  /** Range-index tag for one tree node. Scoped to schema+epoch like blindTag, and domain-separated by field and level. */
+  rangeTag(schemaId: string, epoch: string, field: string, level: number, prefix: number): `0x${string}` {
+    const k = hkdf(sha256, fromHex(this.id.envSecret), undefined, utf8(`arkivzk/rix/v1|${schemaId}|${epoch}`), 32);
+    return toHex(hmac(sha256, k, utf8(`${field}\0${level}\0${prefix}`)));
+  }
+
+  /** Blind foreign key: links a child to its parent record without revealing either recordId. Not epoch-scoped. */
+  relTag(parentRecordId: string): `0x${string}` {
+    const k = hkdf(sha256, fromHex(this.id.envSecret), undefined, utf8("arkivzk/rel/v1"), 32);
+    return toHex(hmac(sha256, k, utf8(parentRecordId.toLowerCase())));
   }
 
   async saveCollection(c: VaultCollection) {

@@ -1,5 +1,6 @@
 import { ExpirationTime, MAX_LIFETIME, type PublicArkivClient } from "@arkiv-network/sdk";
-import { eq, and, or } from "@arkiv-network/sdk/query";
+import { eq, and, or, gt, asc } from "@arkiv-network/sdk/query";
+import { key } from "@arkiv-network/sdk";
 import { u64 } from "@arkiv-network/sdk/schema";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import {
@@ -8,7 +9,7 @@ import {
 } from "@arkivzk/crypto";
 import {
   APP, ZkRecord, ZkProof, ZkVerificationKey, ShredReceipt, guardedBatch, encodeRecord, decodeRecord, toSlots,
-  recordAad, attachmentAad, epochOf, contentKey, localKeyProvider,
+  recordAad, attachmentAad, epochOf, contentKey, localKeyProvider, rangePath, rangeCover,
   type WriteEnv, type RecordPlaintext, type DestroyedAttestation, type ShredRequest,
 } from "@arkivzk/core";
 import { Vault, GuardianClient, GuardianError, buildShredRequest, type VaultRecord, type VaultCollection } from "@arkivzk/vault";
@@ -20,6 +21,8 @@ import { QueryPlanner } from "./query.js";
 export type Hex = `0x${string}`;
 const BLOCK_SECONDS = 2;
 const MAX_SEARCHABLE = 3;
+/** equality terms per OR query: under the node query-size limit, and a multiple of 3 so one tag's 3 columns stay in one query (no double counting) */
+const TERMS_PER_QUERY = 18;
 
 /** Encrypted blob storage for attachments (Swarm in the reference app). */
 export interface BlobStore {
@@ -54,6 +57,10 @@ export type PutInput = {
   retentionSeconds: number;
   /** up to 3 fields made exact-match searchable via blind index tags */
   searchable?: string[];
+  /** one integer field (0..255) made range-searchable (8 tree tags) */
+  rangeField?: string;
+  /** entity key of a parent record in this vault: stored as a blind foreign key (JOIN + cascade shred) */
+  parent?: string;
 };
 
 export type PutResult = { entityKey: Hex; txHash: Hex; expiresAtBlock: bigint; commitment: string; swarmRef?: string; signer: Hex };
@@ -206,6 +213,13 @@ export class ArkivZK {
     if (fields.length === 0 || fields.length > SLOTS) throw new Error(`a record needs 1..${SLOTS} fields`);
     const searchable = input.searchable ?? [];
     if (searchable.length > MAX_SEARCHABLE || searchable.some((f) => !fields.includes(f))) throw new Error(`up to ${MAX_SEARCHABLE} searchable fields, all present in values`);
+    if (input.rangeField) {
+      const v = input.values[input.rangeField];
+      if (typeof v !== "number") throw new Error("rangeField must name a numeric field");
+      rangePath(v); // validates 0..255 integer
+    }
+    const parent = input.parent ? await this.requireRecord(input.parent) : undefined;
+    if (parent && parent.status !== "live") throw new Error("parent record is not live");
     const blocks = Math.ceil(input.retentionSeconds / BLOCK_SECONDS);
     if (blocks < 30 || BigInt(blocks) > MAX_LIFETIME) throw new Error("retention must be between 1 minute and ~182 days");
 
@@ -240,6 +254,8 @@ export class ArkivZK {
       const signerKey = this.mode === "ephemeral" ? (generatePrivateKey() as Hex) : undefined;
       const bix: Record<string, string> = {};
       searchable.forEach((f, i) => { bix[`bix${i}`] = this.vault.blindTag(input.schemaId, epoch, f, input.values[f] as string | number | boolean); });
+      if (input.rangeField) for (const n of rangePath(input.values[input.rangeField] as number)) bix[`r${n.level}`] = this.vault.rangeTag(input.schemaId, epoch, input.rangeField, n.level, n.prefix);
+      if (parent) bix.rel = this.vault.relTag(parent.recordId);
 
       step(this.mode === "ephemeral" ? "Funding one-time signer via relayer, writing to Arkiv…" : "Writing encrypted entity to Arkiv (confirm in wallet)…");
       const env = this.envFor(this.mode, signerKey);
@@ -272,6 +288,7 @@ export class ArkivZK {
         expiresAtBlock: entity.$expiresAt.toString(), expiresAtMs: this.msAt(entity.$expiresAt, now),
         swarmRef: attachment?.swarmRef, guardians: guardianKeys, deviceShare, status: "live", proofKeys: [],
         collectionId, epoch, signer: this.mode, signerKey,
+        ...(parent ? { parentKey: parent.entityKey } : {}), ...(input.rangeField ? { rangeField: input.rangeField } : {}),
       });
       step("Done");
       return { entityKey, txHash: res.txHash as Hex, expiresAtBlock: entity.$expiresAt, commitment, swarmRef: attachment?.swarmRef, signer: env.account };
@@ -325,18 +342,89 @@ export class ArkivZK {
    * covers 3 tag columns x E epochs. Returns entity keys of matching records owned by this vault.
    */
   async search(schemaId: string, field: string, value: string | number | boolean, epochs?: string[]) {
-    const eps = epochs ?? [...new Set([epochOf(), ...(await this.vault.listCollections()).filter((c) => c.schemaId === schemaId).map((c) => c.epoch)])];
+    const eps = epochs ?? (await this.epochsOf(schemaId));
     const tags = eps.map((e) => this.vault.blindTag(schemaId, e, field, value));
-    const exprs = tags.flatMap((t) => [eq("bix0", t), eq("bix1", t), eq("bix2", t)]);
-    const keys: Hex[] = [];
-    let queries = 0;
-    for (let i = 0; i < exprs.length; i += 18) {
-      const res = await this.publicClient.select({ $key: true }).from(ZkRecord)
-        .where(and(eq("app", APP), eq("schemaId", schemaId), or(...exprs.slice(i, i + 18)))).limit(100).fetch();
-      queries++;
-      keys.push(...res.entities.map((e) => e.$key.toLowerCase() as Hex));
-    }
+    const terms = tags.flatMap((t) => [eq("bix0", t), eq("bix1", t), eq("bix2", t)]);
+    const { keys, queries } = await this.keysWhere(schemaId, terms);
     return { keys, queries, tagsTried: tags.length };
+  }
+
+  /**
+   * Range search over an encrypted numeric field (0..255) that was written with `rangeField`.
+   * [min, max] -> canonical tree cover (<= 14 nodes) per epoch -> equality terms on r1..r8.
+   * Arkiv evaluates it server-side; it never sees the value or the bounds, only HMAC tags.
+   */
+  async searchRange(schemaId: string, field: string, min: number, max: number, epochs?: string[]) {
+    const eps = epochs ?? (await this.epochsOf(schemaId));
+    const cover = rangeCover(min, max);
+    if (cover === "all") {
+      const { keys, queries } = await this.keysWhere(schemaId, eps.map((e) => eq("epoch", e)));
+      return { keys, queries, terms: eps.length, nodes: 0 };
+    }
+    const terms = eps.flatMap((e) => cover.map((n) => eq(`r${n.level}` as "r1", this.vault.rangeTag(schemaId, e, field, n.level, n.prefix))));
+    const { keys, queries } = await this.keysWhere(schemaId, terms);
+    return { keys, queries, terms: terms.length, nodes: cover.length };
+  }
+
+  /**
+   * Encrypted COUNT: Arkiv counts matching entities server-side (no rows downloaded).
+   * where = exact value (blind index) or a range (range index).
+   */
+  async count(schemaId: string, field: string, where: { eq: string | number | boolean } | { min: number; max: number }, epochs?: string[]) {
+    const eps = epochs ?? (await this.epochsOf(schemaId));
+    let terms: any[];
+    if ("eq" in where) terms = eps.flatMap((e) => { const t = this.vault.blindTag(schemaId, e, field, where.eq); return [eq("bix0", t), eq("bix1", t), eq("bix2", t)]; });
+    else {
+      const cover = rangeCover(where.min, where.max);
+      if (cover === "all") terms = eps.map((e) => eq("epoch", e));
+      else terms = eps.flatMap((e) => cover.map((n) => eq(`r${n.level}` as "r1", this.vault.rangeTag(schemaId, e, field, n.level, n.prefix))));
+    }
+    let total = 0n, queries = 0;
+    for (let i = 0; i < terms.length; i += TERMS_PER_QUERY) {
+      total += await (this.publicClient.count().from(ZkRecord) as any).where((and as any)(eq("app", APP), eq("schemaId", schemaId), or(...terms.slice(i, i + TERMS_PER_QUERY))) as any).fetch();
+      queries++;
+    }
+    return { count: Number(total), queries, terms: terms.length };
+  }
+
+  /** JOIN parent -> children through the blind foreign key: one indexed equality query (+ keyset pages). */
+  async childrenOf(parentEntityKey: string) {
+    const parent = await this.requireRecord(parentEntityKey);
+    const tag = this.vault.relTag(parent.recordId);
+    const keys: Hex[] = [];
+    let cursor: string | undefined, queries = 0;
+    for (;;) {
+      const page = await this.publicClient.select({ $key: true, schemaId: true }).from(ZkRecord)
+        .where(and(eq("app", APP), eq("rel", tag), ...(cursor ? [gt("$key", key(cursor as Hex))] : []))).orderBy(asc("$key")).limit(100).fetch();
+      queries++;
+      keys.push(...page.entities.map((e) => e.$key.toLowerCase() as Hex));
+      if (page.entities.length < 100) break;
+      cursor = page.entities[page.entities.length - 1].$key;
+    }
+    return { keys, queries };
+  }
+
+  private async epochsOf(schemaId: string) {
+    return [...new Set([epochOf(), ...(await this.vault.listCollections()).filter((c) => c.schemaId === schemaId).map((c) => c.epoch)])];
+  }
+
+  /** OR of equality terms, chunked under the node's query-size limit, keyset-paginated per chunk. */
+  private async keysWhere(schemaId: string, terms: any[]) {
+    const keys = new Set<Hex>();
+    let queries = 0;
+    for (let i = 0; i < terms.length; i += TERMS_PER_QUERY) {
+      let cursor: string | undefined;
+      for (;;) {
+        const res: any = await (this.publicClient.select({ $key: true }).from(ZkRecord) as any)
+          .where((and as any)(eq("app", APP), eq("schemaId", schemaId), or(...terms.slice(i, i + TERMS_PER_QUERY)), ...(cursor ? [gt("$key", key(cursor as Hex))] : [])) as any)
+          .orderBy(asc("$key")).limit(100).fetch();
+        queries++;
+        for (const e of res.entities) keys.add(e.$key.toLowerCase() as Hex);
+        if (res.entities.length < 100) break;
+        cursor = res.entities[res.entities.length - 1].$key;
+      }
+    }
+    return { keys: [...keys], queries };
   }
 
   // ================================================================== prove
@@ -427,7 +515,8 @@ export class ArkivZK {
   }
 
   /** Record-level crypto-shred. */
-  async shred(entityKeys: string[], onStep: StepFn = () => {}): Promise<ShredResult> {
+  async shred(entityKeys: string[], onStep: StepFn = () => {}, opts: { cascade?: boolean } = {}): Promise<ShredResult> {
+    if (opts.cascade) entityKeys = await this.withDescendants(entityKeys);
     const recs: VaultRecord[] = [];
     for (const k of entityKeys) {
       const r = await this.requireRecord(k);
@@ -445,6 +534,22 @@ export class ArkivZK {
     }
     const out = await this.publishShredReceipts(recs.map((r) => r.entityKey), onStep);
     return { ...out, keysDestroyed };
+  }
+
+  /** BFS over blind foreign keys (depth <= 8). Only descendants this vault holds keys for can be shredded by record. */
+  private async withDescendants(roots: string[]): Promise<string[]> {
+    const seen = new Set(roots.map((k) => k.toLowerCase()));
+    let frontier = [...seen];
+    for (let depth = 0; depth < 8 && frontier.length; depth++) {
+      const next: string[] = [];
+      for (const k of frontier) {
+        const r = await this.vault.getRecord(k);
+        if (!r || r.status !== "live") continue;
+        for (const c of (await this.childrenOf(k)).keys) if (!seen.has(c) && (await this.vault.getRecord(c))) { seen.add(c); next.push(c); }
+      }
+      frontier = next;
+    }
+    return [...seen];
   }
 
   /**

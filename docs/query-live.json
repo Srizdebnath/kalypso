@@ -1,0 +1,30 @@
+{
+  "at": "2026-11-06T22:36:59.737Z",
+  "keyset": {
+    "rows": 10,
+    "page100Queries": 1,
+    "page1Queries": 11,
+    "identical": true
+  },
+  "inBatching": {
+    "keys": 45,
+    "queries": 3,
+    "naive": 45,
+    "ms": 971
+  },
+  "liveKeys": {
+    "keys": 45,
+    "live": 10,
+    "ms": 467
+  },
+  "projection": {
+    "records": 1,
+    "narrowBytes": 167,
+    "fullBytes": 2432
+  },
+  "join": {
+    "records": 1,
+    "proofs": 0,
+    "queries": 1
+  }
+}

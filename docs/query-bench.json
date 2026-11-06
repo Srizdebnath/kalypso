@@ -1,0 +1,49 @@
+{
+  "at": "2026-11-06T22:35:16.451Z",
+  "signer": "0xBc670380edc8Ac07E91ca68cD6ac2Adf27881162",
+  "records": 7,
+  "before": {
+    "hits": 3,
+    "queries": 1,
+    "bytes": 2296,
+    "decrypts": 7,
+    "guardianRtts": 14,
+    "scanned": 7,
+    "ms": 3034
+  },
+  "afterRange": {
+    "hits": 3,
+    "queries": 1,
+    "terms": 5,
+    "nodes": 5,
+    "ms": 497,
+    "sameResultAsBefore": true
+  },
+  "countRange": {
+    "count": 3,
+    "queries": 1,
+    "ms": 372
+  },
+  "countEq": {
+    "count": 4,
+    "ms": 396
+  },
+  "searchEq": {
+    "hits": 4,
+    "queries": 1,
+    "ms": 394
+  },
+  "join": {
+    "children": 1,
+    "queries": 1,
+    "ms": 341
+  },
+  "cascade": {
+    "deleted": 2,
+    "keysDestroyed": 2,
+    "txs": 1,
+    "ms": 6181,
+    "childLiveAfter": 0,
+    "childrenAfter": 0
+  }
+}

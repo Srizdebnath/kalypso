@@ -178,8 +178,16 @@ async function deviceKey(address: string): Promise<CryptoKey> {
   const existing = await idb<CryptoKey | undefined>((s) => s.get(id), "readonly");
   if (existing) return existing;
   const k = await crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]);
-  await idb((s) => s.put(k, id), "readwrite");
-  return k;
+  // `add` fails if another tab/call stored a key first; then use that one. Never overwrite a device key:
+  // the vault is sealed with it, and a replaced key makes the vault unreadable (OperationError).
+  try {
+    await idb((s) => s.add(k, id), "readwrite");
+    return k;
+  } catch {
+    const winner = await idb<CryptoKey | undefined>((s) => s.get(id), "readonly");
+    if (!winner) throw new Error("Could not store the device key in IndexedDB");
+    return winner;
+  }
 }
 
 type Session = { address: Hex; zk: ArkivZKType };
@@ -214,17 +222,31 @@ export async function setSignerMode(mode: SignerMode): Promise<void> {
   session = null; // rebuilt with the new mode on next use
 }
 
+let sessionP: Promise<Session> | null = null;
+
+/** Single-flight: parallel callers (list + collections on page load) share one session build. */
 async function requireSession(): Promise<Session> {
   if (session) {
     const [cur] = (await injected().request({ method: "eth_accounts" })) as Hex[];
     if (cur && cur.toLowerCase() === session.address.toLowerCase()) return session;
     session = null;
   }
-  const acct = await currentAccount();
-  if (!acct) throw new Error("Connect your wallet first.");
-  await ensureRabdi(injected());
-  session = { address: acct, zk: await buildZk(acct) };
-  return session;
+  sessionP ??= (async () => {
+    const acct = await currentAccount();
+    if (!acct) throw new Error("Connect your wallet first.");
+    await ensureRabdi(injected());
+    let zk: ArkivZKType;
+    try {
+      zk = await buildZk(acct);
+    } catch (e) {
+      if (e instanceof Error && e.name === "OperationError")
+        throw new Error("This browser's vault can't be unlocked with its device key (the key in IndexedDB was replaced). Restore from your recovery kit in Settings.");
+      throw e;
+    }
+    session = { address: acct, zk };
+    return session;
+  })().finally(() => { sessionP = null; });
+  return sessionP;
 }
 
 const msg = (e: unknown) => (e instanceof Error ? e.message : String(e));
