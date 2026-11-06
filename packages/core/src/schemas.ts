@@ -15,6 +15,10 @@ export const ZkRecord = defineSchema("arkivzk.record.v1", {
   ct: bytes(), // AES-256-GCM(DEK, pad(record)) - padded to a size bucket
   envId: bytes(), // AES-GCM(controller-derived key, recordId): lets the owner re-find guardian shares after device loss
   swarmRef: str().optional(), // Swarm reference of an encrypted attachment (same DEK family)
+  // blind index: HMAC(per-collection key, field || value). Owner can search by exact value; others see random tags.
+  bix0: str().indexed().optional(),
+  bix1: str().indexed().optional(),
+  bix2: str().indexed().optional(),
 });
 
 /** A ZK proof about a record. */

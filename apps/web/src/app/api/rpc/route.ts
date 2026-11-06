@@ -5,6 +5,7 @@ const ALLOWED = new Set([
   "eth_maxPriorityFeePerGas", "eth_estimateGas", "eth_getBalance", "eth_getTransactionReceipt",
   "eth_getTransactionByHash", "eth_call", "eth_getLogs", "net_version",
   "arkiv_query", "arkiv_getEntity", "arkiv_getBlockTiming", "arkiv_getEntityNonce",
+  "eth_sendRawTransaction", // already-signed txs from ephemeral signers; the proxy adds no authority
 ]);
 const MAX_BODY = 256 * 1024;
 

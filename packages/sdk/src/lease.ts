@@ -1,5 +1,4 @@
 import { ExpirationTime, MAX_LIFETIME } from "@arkiv-network/sdk";
-import { guardedBatch } from "@arkivzk/core";
 import type { VaultRecord } from "@arkivzk/vault";
 import type { ArkivZK } from "./arkivzk.js";
 import { liveKeys } from "./live.js";
@@ -40,17 +39,27 @@ export class LeaseManager {
       return { r, target, ms: Date.now() + Number(target - now) * BLOCK_SECONDS * 1000 };
     });
 
-    step("Extending key leases on guardians…");
-    // one batched call per guardian, both guardians in parallel: O(1) round trips for k records
-    const items = plan.map((p) => ({ recordId: p.r.recordId, expiresAt: p.ms + 60_000 }));
+    step("Extending key leases on guardians (record keys + collection keys)…");
+    // one batched call per guardian, both in parallel: O(1) round trips for k records
+    const colUntil = new Map<string, number>();
+    for (const p of plan) colUntil.set(p.r.collectionId, Math.max(colUntil.get(p.r.collectionId) ?? 0, p.ms + 60_000));
+    const items = [
+      ...plan.map((p) => ({ recordId: p.r.recordId, expiresAt: p.ms + 60_000 })),
+      ...[...colUntil].map(([recordId, expiresAt]) => ({ recordId, expiresAt })),
+    ];
     await Promise.all(this.zk.cfg.guardians.map((g) => g.extend(this.zk.vault, items)));
+    for (const [id, until] of colUntil) {
+      const c = await this.zk.vault.getCollection(id);
+      if (c && until > c.expiresAtMs) await this.zk.vault.saveCollection({ ...c, expiresAtMs: until });
+    }
 
-    step("Extending record + proofs on Arkiv in one transaction (confirm in wallet)…");
+    step("Extending records + proofs on Arkiv (one tx per owner)…");
     const live = await liveKeys(this.zk.publicClient, plan.flatMap((p) => [p.r.entityKey, ...p.r.proofKeys]));
-    const extensions = plan.flatMap((p) =>
-      [p.r.entityKey, ...p.r.proofKeys].filter((k) => live.has(k.toLowerCase()))
+    const results = await this.zk.perSigner(plan.map((p) => ({ ...p, signer: p.r.signer, signerKey: p.r.signerKey })), (group) => {
+      const extensions = group.flatMap((p) => [p.r.entityKey, ...p.r.proofKeys].filter((k) => live.has(k.toLowerCase()))
         .map((k) => ({ entityKey: k as Hex, expiration: ExpirationTime.atBlock(p.target) })));
-    const res = await guardedBatch(this.zk.cfg.write, { extensions });
+      return extensions.length ? { extensions } : null;
+    });
     const after = await liveKeys(this.zk.publicClient, plan.map((p) => p.r.entityKey));
     const blockNow = await this.zk.publicClient.getBlockNumber();
     for (const p of plan) {
@@ -60,7 +69,8 @@ export class LeaseManager {
         expiresAtMs: Date.now() + Number(exp - blockNow) * BLOCK_SECONDS * 1000,
       });
     }
-    return { txHash: res.txHash as Hex, extended: extensions.length };
+    const done = results.filter((r): r is NonNullable<typeof r> => !!r);
+    return { txHash: (done[0]?.res.txHash ?? "0x") as Hex, txHashes: done.map((r) => r.res.txHash as Hex), extended: done.reduce((n, r) => n + r.res.extendedEntities.length, 0) };
   }
 }
 

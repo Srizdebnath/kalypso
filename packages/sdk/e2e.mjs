@@ -76,12 +76,12 @@ try {
 
   console.log("1. put");
   const put = await timed("put (commit + encrypt + guardians + Arkiv tx)", () =>
-    zk.put({ schemaId: "medical.v1", values: { age: 25, country: "IN", bloodGroup: "O+" }, retentionSeconds: 600 }, (s) => console.log("   ·", s)));
+    zk.put({ schemaId: "medical.v1", values: { age: 25, country: "IN", bloodGroup: "O+" }, retentionSeconds: 600, searchable: ["country", "bloodGroup"] }, (s) => console.log("   ·", s)));
   console.log("   entity", put.entityKey, "tx", put.txHash);
   await gasOf("put", put.txHash);
 
   const captured = await publicClient.getEntity(put.entityKey, ZkRecord); // what an archive node keeps forever
-  const ctBytes = fromHex(captured.ct.value), envBytes = fromHex(captured.envId.value);
+  const ctBytes = fromHex(captured.ct.value), envBytes = fromHex(captured.envId.value), epoch = captured.epoch.value;
   console.log(`   on-chain ciphertext ${ctBytes.length} bytes (padded bucket)`);
 
   console.log("2. get");
@@ -97,6 +97,11 @@ try {
   const v = await timed("verify (public, no keys)", () => verifyProofEntity(publicClient, proof.proofEntityKey));
   console.log("   valid:", v.valid, v.statementText); v.checks.forEach((c) => console.log(`     ${c.ok ? "✓" : "✗"} ${c.name}`));
 
+  console.log("4b. blind-index search country=IN");
+  const found = await timed("search (blind index)", () => zk.search("medical.v1", "country", "IN"));
+  console.log("   found", found.keys.includes(put.entityKey), "queries", found.queries);
+  if (!found.keys.includes(put.entityKey)) throw new Error("blind-index search did not find the record");
+
   console.log("5. query planner");
   const qp = new QueryPlanner(publicClient);
   console.log(qp.explain({ from: ZkRecord, where: { app: "arkivzk", schemaId: "medical.v1" }, ownedBy: account.address }));
@@ -108,16 +113,27 @@ try {
   console.log("   extended", ren.extended, "entities in tx", ren.txHash);
   await gasOf("renew (2 extensions)", ren.txHash);
 
+  console.log("6b. second record (same collection) then EPOCH shred kills it via the collection key");
+  const put2 = await zk.put({ schemaId: "medical.v1", values: { age: 40, country: "DE", bloodGroup: "A-" }, retentionSeconds: 600 });
+  const cap2 = await publicClient.getEntity(put2.entityKey, ZkRecord);
+
   console.log("7. archive capture decrypt BEFORE shred");
-  console.log("  ", (await zk.tryDecryptCaptured(ctBytes, envBytes, "medical.v1")).log.join("\n    "));
+  console.log("  ", (await zk.tryDecryptCaptured(ctBytes, envBytes, "medical.v1", epoch)).log.join("\n    "));
 
   console.log("8. shred");
   const sh = await timed("shred (guardians + one Arkiv tx)", () => zk.shred([put.entityKey], (id, st, d) => console.log(`   · ${id} ${st} ${d ?? ""}`)));
   console.log("   receipt", sh.receipts[0], "deleted", sh.deleted.length);
-  await gasOf("shred (2 deletes + 1 receipt)", sh.txHash);
+  await gasOf("shred (2 deletes + 1 receipt)", sh.txHashes[0]);
+
+  console.log("8b. epoch shred (collection key)");
+  const ep = await timed("shred epoch", () => zk.shredEpoch(epoch, (id, st, d) => console.log(`   · ${id} ${st} ${d ?? ""}`)));
+  console.log("   keys destroyed", ep.keysDestroyed, "receipts", ep.receipts.length);
+  const after2 = await zk.tryDecryptCaptured(fromHex(cap2.ct.value), fromHex(cap2.envId.value), "medical.v1", epoch);
+  console.log("   record 2 decryptable after epoch shred:", after2.success);
+  if (after2.success) throw new Error("epoch shred did not kill record 2");
 
   console.log("9. archive capture decrypt AFTER shred");
-  const after = await zk.tryDecryptCaptured(ctBytes, envBytes, "medical.v1");
+  const after = await zk.tryDecryptCaptured(ctBytes, envBytes, "medical.v1", epoch);
   console.log("   success:", after.success, "\n    " + after.log.join("\n    "));
 
   console.log("10. verify old proof again");
@@ -127,7 +143,28 @@ try {
   console.log("11. receipt");
   const rc = await getReceipt(publicClient, sh.receipts[0]);
   console.log("   controller sig valid:", rc.requestValid, "guardian attestations valid:", rc.attestations.map((a) => a.valid), "record live:", rc.recordStillLive);
-  console.log("   certificate:", erasureCertificate(rc, sh.txHash).statement);
+  console.log("   certificate:", erasureCertificate(rc, sh.txHashes[0]).statement);
+
+  console.log("12. ephemeral signer mode (relayer pool = dev wallet, real funding txs)");
+  const relayer = {
+    async fund(address, minBalanceWei, sign) {
+      const { verifyMessage } = await import("viem");
+      const { relayerMessage } = await import("./dist/index.js");
+      const ts = Date.now();
+      const sig = await sign(relayerMessage(address, minBalanceWei, ts));
+      if (!(await verifyMessage({ address, message: relayerMessage(address, minBalanceWei, ts), signature: sig }))) throw new Error("bad relayer sig");
+      const bal = await publicClient.getBalance({ address });
+      if (bal >= minBalanceWei) return;
+      const hash = await signer.sendTransaction({ to: address, value: ((minBalanceWei - bal) * 12n) / 10n });
+      await publicClient.waitForTransactionReceipt({ hash });
+    },
+  };
+  const zkE = new ArkivZK({ ...zk.cfg, signer: "ephemeral", relayer });
+  const putE = await timed("put (ephemeral signer, incl. relayer funding)", () => zkE.put({ schemaId: "chat.v1", values: { len: 12 }, retentionSeconds: 600 }));
+  const ownerE = (await publicClient.getEntity(putE.entityKey)).$owner;
+  console.log("   owner on Arkiv:", ownerE, "user wallet:", account.address, "linked:", ownerE.toLowerCase() === account.address.toLowerCase());
+  const shE = await timed("shred (ephemeral)", () => zkE.shred([putE.entityKey]));
+  console.log("   receipt", shE.receipts[0]);
 
   fs.writeFileSync(path.join(root, "docs/e2e-timings.json"), JSON.stringify({ at: new Date().toISOString(), ctBytes: ctBytes.length, proofBytes: 14656, timings: t, gasUsed: gas, entity: put.entityKey, proofEntity: proof.proofEntityKey, receipt: sh.receipts[0], signer: account.address }, null, 2));
   console.log("\nALL STEPS PASSED");

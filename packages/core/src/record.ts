@@ -1,4 +1,4 @@
-import { encodeField, fromUtf8, utf8, type FieldValue } from "@arkivzk/crypto";
+import { encodeField, fromUtf8, utf8, hkdf, sha256, concat, type FieldValue } from "@arkivzk/crypto";
 
 export const SLOTS = 8;
 
@@ -40,4 +40,13 @@ export const attachmentAad = (recordId: string) => utf8(`arkivzk.attachment.v1|$
 
 export function epochOf(d = new Date()) {
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
+/**
+ * Two-level key hierarchy: content key = HKDF(recordDEK || collectionKey).
+ * Destroying EITHER kills the record: record DEK -> one record; collection key -> every record
+ * of that schema+epoch at once (O(1) key operations, independent of record count).
+ */
+export function contentKey(recordDek: Uint8Array, collectionKey: Uint8Array): Uint8Array {
+  return hkdf(sha256, concat(recordDek, collectionKey), undefined, utf8("arkivzk/content/v1"), 32);
 }

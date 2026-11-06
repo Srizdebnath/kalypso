@@ -16,12 +16,20 @@ export type LocalRecord = {
   fieldNames: string[];
   /** Keys destroyed but the ShredReceipt was not published yet: offer a retry. */
   pendingShred?: boolean;
+  /** "2026-11": the month collection this record belongs to */
+  epoch: string;
+  /** who owns the entity on Arkiv: the user's wallet, or a one-time key funded by the relayer */
+  signer: "wallet" | "ephemeral";
 };
+export type SignerMode = "wallet" | "ephemeral";
+export type CollectionView = { collectionId: string; schemaId: string; epoch: string; status: "live" | "shredded"; records: number };
 export type PutInput = {
   schemaId: string;
   values: Record<string, FieldValue>;
   file?: File;
   retentionSeconds: number;
+  /** up to 3 field names made exact-match searchable (blind index) */
+  searchable?: string[];
 };
 export type PutResult = {
   entityKey: `0x${string}`;
@@ -183,6 +191,7 @@ async function buildZk(address: Hex, vaultOverride?: import("@arkivzk/sdk").Vaul
   if (cfg.guardians.length < 2) throw new Error("server config: two guardian URLs required");
   const vault = vaultOverride ?? await s.Vault.open(new s.IndexedDBKV("arkivzk-vault-" + address.toLowerCase()), s.webCryptoSealer(await deviceKey(address)));
   const pc = await publicClient();
+  const mode = getSignerMode();
   const blobs = cfg.swarm ? (await import("@arkivzk/swarm")).httpBlobStore("/api/swarm") : undefined;
   return new s.ArkivZK({
     publicClient: pc,
@@ -190,7 +199,19 @@ async function buildZk(address: Hex, vaultOverride?: import("@arkivzk/sdk").Vaul
     guardians: [new s.GuardianClient(cfg.guardians[0]), new s.GuardianClient(cfg.guardians[1])],
     write: { chain: await chain(), rpc: rpc as never, publicClient: pc as never, provider: injected(), account: address },
     blobs,
+    signer: mode,
+    relayer: mode === "ephemeral" ? s.httpRelayer("/api/relayer") : undefined,
   });
+}
+
+const MODE_KEY = "arkivzk-signer-mode";
+export function getSignerMode(): SignerMode {
+  try { return (localStorage.getItem(MODE_KEY) as SignerMode) === "ephemeral" ? "ephemeral" : "wallet"; } catch { return "wallet"; }
+}
+/** Switch signer mode for NEW records (existing records keep their owner). */
+export async function setSignerMode(mode: SignerMode): Promise<void> {
+  localStorage.setItem(MODE_KEY, mode);
+  session = null; // rebuilt with the new mode on next use
 }
 
 async function requireSession(): Promise<Session> {
@@ -213,6 +234,7 @@ function toLocal(r: VaultRecord): LocalRecord {
     entityKey: r.entityKey, schemaId: r.schemaId, createdAt: r.createdAt, expiresAtBlock: r.expiresAtBlock,
     expiresAtMs: r.expiresAtMs || null, status: r.status, swarmRef: r.swarmRef, fieldNames: r.fields,
     pendingShred: !!r.pendingShred,
+    epoch: r.epoch, signer: r.signer,
   };
 }
 
@@ -254,7 +276,7 @@ export async function putRecord(input: PutInput, onStep?: (s: string) => void): 
   const attachment = input.file
     ? { name: input.file.name, type: input.file.type || "application/octet-stream", bytes: new Uint8Array(await input.file.arrayBuffer()) }
     : undefined;
-  const r = await zk.put({ schemaId: input.schemaId, values: input.values, retentionSeconds: input.retentionSeconds, attachment }, onStep);
+  const r = await zk.put({ schemaId: input.schemaId, values: input.values, retentionSeconds: input.retentionSeconds, attachment, searchable: input.searchable }, onStep);
   return { entityKey: r.entityKey, txHash: r.txHash, expiresAtBlock: r.expiresAtBlock.toString(), commitment: r.commitment, swarmRef: r.swarmRef };
 }
 
@@ -297,10 +319,11 @@ function stepTracker(onStep: (steps: ShredStep[]) => void, skipKeys = false) {
   };
 }
 
-async function finishReceipt(zk: ArkivZKType, res: { txHash: Hex; receipts: Hex[]; deleted: Hex[] }) {
+async function finishReceipt(zk: ArkivZKType, res: { txHashes: Hex[]; receipts: Hex[]; deleted: Hex[] }) {
+  if (res.receipts.length === 0) throw new Error("Keys destroyed; no live Arkiv entities needed cleanup, so no receipt was published");
   const s = await sdk();
   const r = await s.getReceipt(zk.publicClient, res.receipts[0]);
-  return receiptView(r, res.txHash, res.deleted);
+  return receiptView(r, res.txHashes[0], res.deleted);
 }
 
 export async function shredRecords(entityKeys: string[], onStep: (steps: ShredStep[]) => void): Promise<ShredReceiptView> {
@@ -320,6 +343,38 @@ export async function retryShredPublish(entityKeys: string[], onStep: (steps: Sh
   const update = stepTracker(onStep, true);
   const res = await zk.publishShredReceipts(entityKeys, update);
   return finishReceipt(zk, res);
+}
+
+/** Shred a whole month: destroys the collection key(s), so every record of that epoch dies at once. */
+export async function shredEpoch(epoch: string, onStep: (steps: ShredStep[]) => void): Promise<ShredReceiptView | null> {
+  const { zk } = await requireSession();
+  const update = stepTracker(onStep);
+  const res = await zk.shredEpoch(epoch, update);
+  return res.receipts.length ? finishReceipt(zk, res) : null;
+}
+
+/** Shred everything: all collection + record keys, then this vault's identity. */
+export async function shredAccount(onStep: (steps: ShredStep[]) => void): Promise<ShredReceiptView | null> {
+  const { zk } = await requireSession();
+  const update = stepTracker(onStep);
+  const res = await zk.shredAccount(update);
+  session = null;
+  return res.receipts.length ? finishReceipt(zk, res) : null;
+}
+
+export async function listCollections(): Promise<CollectionView[]> {
+  const { zk } = await requireSession();
+  const recs = await zk.vault.listRecords();
+  return (await zk.vault.listCollections()).map((c) => ({
+    collectionId: c.collectionId, schemaId: c.schemaId, epoch: c.epoch, status: c.status,
+    records: recs.filter((r) => r.collectionId === c.collectionId).length,
+  }));
+}
+
+/** Blind-index search over encrypted fields (only fields marked searchable at creation). */
+export async function searchRecords(schemaId: string, field: string, value: FieldValue): Promise<{ keys: string[]; queries: number; tagsTried: number }> {
+  const { zk } = await requireSession();
+  return zk.search(schemaId, field, value);
 }
 
 /* ================================================================ public: verify / receipts */
@@ -379,7 +434,7 @@ export async function tryDecryptArchived(txHash: string): Promise<DecryptAttempt
   const create = (c as Capture).ops.find((o) => o.op === "create" && o.attributes?.some((a) => a.name === "ct"));
   if (!create) return { success: false, log: ["This capture has no arkivzk record ciphertext (it is a proof, VK or receipt: public by design)."] };
   const attr = (n: string) => create.attributes!.find((a) => a.name === n)?.value ?? "";
-  const ct = attr("ct"), envId = attr("envId"), schemaId = attr("schemaId");
+  const ct = attr("ct"), envId = attr("envId"), schemaId = attr("schemaId"), epoch = attr("epoch");
   const log = [
     `Captured tx ${txHash.slice(0, 12)}… in block ${c.blockNumber}: ${c.bytes} bytes of raw calldata`,
     `Decoded create op: ciphertext ${(ct.length - 2) / 2} B, commitment ${attr("commitment").slice(0, 14)}…`,
@@ -395,7 +450,7 @@ export async function tryDecryptArchived(txHash: string): Promise<DecryptAttempt
   }
   log.push("Trying with the strongest attacker possible: the owner's own vault + both guardians…");
   const { zk } = await requireSession();
-  const res = await zk.tryDecryptCaptured(fromHex(ct), fromHex(envId), schemaId);
+  const res = await zk.tryDecryptCaptured(fromHex(ct), fromHex(envId), schemaId, epoch);
   return { success: res.success, log: [...log, ...res.log] };
 }
 

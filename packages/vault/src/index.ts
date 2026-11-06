@@ -3,6 +3,7 @@ import {
   hpkeSeal, hpkeOpen, kemKeygen, randomBytes, zeroize, sha256Hex, verifyPayload, canonicalJson,
 } from "@arkivzk/crypto";
 import { scrypt } from "@noble/hashes/scrypt.js";
+import { hmac } from "@noble/hashes/hmac.js";
 import {
   DOMAIN,
   type DestroyedAttestation, type GuardianInfo, type PutShareRequest, type ShredRequest,
@@ -108,6 +109,10 @@ export type VaultRecord = {
   expiresAtMs: number;
   swarmRef?: string;
   guardians: string[]; // guardian sign public keys, same order as share index 1,2
+  collectionId: `0x${string}`; // schema+epoch collection whose key is the 2nd half of the content key
+  epoch: string;
+  signer: "wallet" | "ephemeral";
+  signerKey?: `0x${string}`; // ephemeral per-record secp256k1 key - deleted on shred
   deviceShare?: string; // hex - deleted on shred
   status: RecordStatus;
   proofKeys: `0x${string}`[];
@@ -117,6 +122,19 @@ export type VaultRecord = {
 };
 
 type Identity = { controllerSk: string; envSecret: string; createdAt: number };
+
+/** A collection = all records of one schema in one epoch (month). Its key is split 2-of-3 like record keys. */
+export type VaultCollection = {
+  collectionId: `0x${string}`;
+  schemaId: string;
+  epoch: string;
+  deviceShare?: string;
+  expiresAtMs: number; // lease = longest-living record in it
+  status: "live" | "shredded";
+};
+
+/** What envId seals on-chain: only the owner's envSecret opens it. */
+export type Envelope = { recordId: `0x${string}`; signerKey?: `0x${string}` };
 
 const AAD_ID = utf8("arkivzk.vault.identity.v1");
 const aadRec = (k: string) => utf8("arkivzk.vault.record.v1|" + k);
@@ -155,11 +173,45 @@ export class Vault {
   private envKey() {
     return hkdf(sha256, fromHex(this.id.envSecret), undefined, utf8("arkivzk/envid/v1"), 32);
   }
-  sealEnvId(recordId: string): Uint8Array {
-    return aead.seal(this.envKey(), fromHex(recordId), utf8("envid"));
+  sealEnvelope(e: Envelope): Uint8Array {
+    const body = e.signerKey ? new Uint8Array([...fromHex(e.recordId), ...fromHex(e.signerKey)]) : fromHex(e.recordId);
+    return aead.seal(this.envKey(), body, utf8("envid"));
   }
-  openEnvId(envId: Uint8Array): `0x${string}` | null {
-    try { return toHex(aead.open(this.envKey(), envId, utf8("envid"))); } catch { return null; }
+  openEnvelope(envId: Uint8Array): Envelope | null {
+    try {
+      const b = aead.open(this.envKey(), envId, utf8("envid"));
+      return { recordId: toHex(b.subarray(0, 16)), signerKey: b.length >= 48 ? toHex(b.subarray(16, 48)) : undefined };
+    } catch { return null; }
+  }
+  /** back-compat helpers */
+  sealEnvId(recordId: string): Uint8Array { return this.sealEnvelope({ recordId: recordId as `0x${string}` }); }
+  openEnvId(envId: Uint8Array): `0x${string}` | null { return this.openEnvelope(envId)?.recordId ?? null; }
+
+  /** Deterministic collection id: recomputable after recovery, unlinkable without envSecret. */
+  collectionId(schemaId: string, epoch: string): `0x${string}` {
+    return toHex(hmac(sha256, fromHex(this.id.envSecret), utf8(`arkivzk/collection/v1|${schemaId}|${epoch}`)).subarray(0, 16));
+  }
+
+  /** Blind-index tag for exact-match search on an encrypted field (per collection key, so tags rotate monthly). */
+  blindTag(schemaId: string, epoch: string, field: string, value: string | number | boolean): `0x${string}` {
+    const k = hkdf(sha256, fromHex(this.id.envSecret), undefined, utf8(`arkivzk/bix/v1|${schemaId}|${epoch}`), 32);
+    const norm = typeof value === "string" ? value.trim().toLowerCase() : String(value);
+    return toHex(hmac(sha256, k, utf8(`${field}\0${norm}`)));
+  }
+
+  async saveCollection(c: VaultCollection) {
+    const k = "col:" + c.collectionId.toLowerCase();
+    await this.kv.set(k, toHex(await this.sealer.seal(utf8(JSON.stringify(c)), utf8(k))));
+  }
+  async getCollection(id: string): Promise<VaultCollection | undefined> {
+    const k = "col:" + id.toLowerCase();
+    const v = await this.kv.get(k);
+    return v ? JSON.parse(fromUtf8(await this.sealer.open(fromHex(v), utf8(k)))) : undefined;
+  }
+  async listCollections(): Promise<VaultCollection[]> {
+    const out: VaultCollection[] = [];
+    for (const k of await this.kv.keys("col:")) { const c = await this.getCollection(k.slice(4)); if (c) out.push(c); }
+    return out;
   }
 
   async saveRecord(r: VaultRecord) {
@@ -185,12 +237,14 @@ export class Vault {
     const r = await this.getRecord(entityKey);
     if (!r) return;
     delete r.deviceShare;
+    delete r.signerKey;
     await this.saveRecord({ ...r, ...patch });
   }
 
   /** Account-level shred: wipe identity (controller key + envId secret) and all records. */
   async destroyIdentity() {
     for (const k of await this.kv.keys("rec:")) await this.kv.delete(k);
+    for (const k of await this.kv.keys("col:")) await this.kv.delete(k);
     await this.kv.delete("identity");
     this.id.controllerSk = "0x";
     this.id.envSecret = "0x";

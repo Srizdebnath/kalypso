@@ -1,25 +1,25 @@
 import { ExpirationTime, MAX_LIFETIME, type PublicArkivClient } from "@arkiv-network/sdk";
-import { eq, and } from "@arkiv-network/sdk/query";
+import { eq, and, or } from "@arkiv-network/sdk/query";
 import { u64 } from "@arkiv-network/sdk/schema";
+import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import {
-  aead, pad, unpad, shamir, hkdf, sha256, utf8, fromUtf8, toHex, fromHex, randomBytes, zeroize,
+  aead, pad, unpad, shamir, hkdf, sha256, utf8, toHex, fromHex, randomBytes, zeroize,
   encodeField, randomFieldSalt, fieldHex, U64_MAX, type FieldValue,
 } from "@arkivzk/crypto";
 import {
   APP, ZkRecord, ZkProof, ZkVerificationKey, ShredReceipt, guardedBatch, encodeRecord, decodeRecord, toSlots,
-  recordAad, attachmentAad, epochOf, type WriteEnv, type RecordPlaintext,
+  recordAad, attachmentAad, epochOf, contentKey, localKeyProvider,
+  type WriteEnv, type RecordPlaintext, type DestroyedAttestation, type ShredRequest,
 } from "@arkivzk/core";
-import {
-  Vault, GuardianClient, buildShredRequest, type VaultRecord,
-} from "@arkivzk/vault";
-import {
-  computeCommitment, proveRange, rangeVerificationKey, vkHash, RANGE_CIRCUIT_ID, SLOTS,
-} from "@arkivzk/zk";
+import { Vault, GuardianClient, GuardianError, buildShredRequest, type VaultRecord, type VaultCollection } from "@arkivzk/vault";
+import { computeCommitment, proveRange, rangeVerificationKey, vkHash, RANGE_CIRCUIT_ID, SLOTS } from "@arkivzk/zk";
 import { contextFor, audienceFor, describeClaim, type Claim, type ProofStatement } from "./statement.js";
 import { liveKeys } from "./live.js";
+import { QueryPlanner } from "./query.js";
 
 export type Hex = `0x${string}`;
 const BLOCK_SECONDS = 2;
+const MAX_SEARCHABLE = 3;
 
 /** Encrypted blob storage for attachments (Swarm in the reference app). */
 export interface BlobStore {
@@ -28,13 +28,22 @@ export interface BlobStore {
   readonly name: string;
 }
 
+/** Pays gas for ephemeral signers from a shared pool, so records don't link back to the user's wallet. */
+export interface Relayer {
+  fund(address: Hex, minBalanceWei: bigint, sign: (message: string) => Promise<Hex>): Promise<void>;
+}
+
 export type ArkivZKConfig = {
   publicClient: PublicArkivClient;
+  /** user's wallet (signs in "wallet" mode; used for reads/estimates in both modes) */
   write: WriteEnv;
   vault: Vault;
-  /** exactly two guardians: shares #2 and #3 of a 2-of-3 split (share #1 stays on the device) */
+  /** exactly two guardians: shares #2 and #3 of every 2-of-3 split (share #1 stays on the device) */
   guardians: [GuardianClient, GuardianClient];
   blobs?: BlobStore;
+  /** "wallet": records owned by the user's wallet. "ephemeral": fresh key per record, gas via relayer. */
+  signer?: "wallet" | "ephemeral";
+  relayer?: Relayer;
 };
 
 export type PutInput = {
@@ -43,14 +52,18 @@ export type PutInput = {
   attachment?: { name: string; type: string; bytes: Uint8Array };
   /** how long the data (and its keys) live. Arkiv max is ~182 days per lease; renew to keep longer. */
   retentionSeconds: number;
+  /** up to 3 fields made exact-match searchable via blind index tags */
+  searchable?: string[];
 };
 
-export type PutResult = { entityKey: Hex; txHash: Hex; expiresAtBlock: bigint; commitment: string; swarmRef?: string };
+export type PutResult = { entityKey: Hex; txHash: Hex; expiresAtBlock: bigint; commitment: string; swarmRef?: string; signer: Hex };
+export type ShredLevel = "record" | "collection" | "epoch" | "account";
+export type ShredResult = { txHashes: Hex[]; receipts: Hex[]; deleted: Hex[]; level: ShredLevel; keysDestroyed: number };
 
 export type Step = (msg: string) => void;
+type StepFn = (id: string, status: "running" | "done" | "error", detail?: string) => void;
 const noop: Step = () => {};
 
-/** Pad an attachment to the next power of two (min 4 KiB) so its size leaks only coarsely. */
 function padPow2(b: Uint8Array) {
   let size = 4096;
   while (size < b.length + 8) size *= 2;
@@ -63,32 +76,148 @@ function unpadPow2(b: Uint8Array) {
   const n = Number(new DataView(b.buffer, b.byteOffset).getBigUint64(0));
   return b.slice(8, 8 + n);
 }
-
-const attachmentKey = (dek: Uint8Array) => hkdf(sha256, dek, undefined, utf8("arkivzk/attachment/v1"), 32);
+const attachmentKey = (k: Uint8Array) => hkdf(sha256, k, undefined, utf8("arkivzk/attachment/v1"), 32);
 
 export class ArkivZK {
-  constructor(readonly cfg: ArkivZKConfig) {}
+  readonly mode: "wallet" | "ephemeral";
+  constructor(readonly cfg: ArkivZKConfig) {
+    this.mode = cfg.signer ?? "wallet";
+    if (this.mode === "ephemeral" && !cfg.relayer) throw new Error("ephemeral signer mode needs a relayer");
+  }
 
   get vault() { return this.cfg.vault; }
   get publicClient() { return this.cfg.publicClient; }
 
-  private async blockNow() {
-    return this.cfg.publicClient.getBlockNumber();
-  }
   private msAt(block: bigint, now: bigint) {
     return Date.now() + Number(block - now) * BLOCK_SECONDS * 1000;
   }
 
-  // ------------------------------------------------------------------ put
+  // ================================================================== signers
+  /** Write environment for whoever owns this record on Arkiv. */
+  private envFor(signer: "wallet" | "ephemeral", signerKey?: Hex): WriteEnv {
+    if (signer === "wallet") return this.cfg.write;
+    if (!signerKey) throw new Error("this record's signer key is gone (shredded): its Arkiv entity can only expire");
+    const acct = privateKeyToAccount(signerKey);
+    const relayer = this.cfg.relayer!;
+    return {
+      ...this.cfg.write,
+      provider: localKeyProvider(signerKey, this.cfg.write.chain, this.cfg.write.rpc),
+      account: acct.address,
+      ensureFunds: (address, cost) => relayer.fund(address, cost, (m) => acct.signMessage({ message: m })),
+    };
+  }
+
+  /** Run one batch per distinct owner, all in parallel (ephemeral records each have their own owner). */
+  async perSigner<T extends { signer: "wallet" | "ephemeral"; signerKey?: Hex }>(
+    items: T[], build: (group: T[]) => Parameters<typeof guardedBatch>[1] | null,
+  ) {
+    const groups = new Map<string, T[]>();
+    for (const it of items) {
+      const k = it.signer === "wallet" ? "wallet" : (it.signerKey ?? "gone");
+      groups.set(k, [...(groups.get(k) ?? []), it]);
+    }
+    return Promise.all([...groups.values()].map(async (g) => {
+      const batch = build(g);
+      if (!batch) return null;
+      return { group: g, res: await guardedBatch(this.envFor(g[0].signer, g[0].signerKey), batch) };
+    }));
+  }
+
+  // ================================================================== key shares
+  private async collectShares(id: string, deviceShare: string | undefined, log: Step = noop): Promise<Uint8Array> {
+    const shares: Uint8Array[] = [];
+    if (deviceShare) shares.push(fromHex(deviceShare));
+    for (const g of this.cfg.guardians) {
+      if (shares.length >= 2) break;
+      try { shares.push(await g.fetchShare(this.vault, id)); log(`${(await g.info()).name}: share for ${id.slice(0, 10)}… released`); }
+      catch (e: any) { log(`${g.url}: ${e.message}`); }
+    }
+    if (shares.length < 2) throw new Error(`fewer than 2 key shares exist for ${id.slice(0, 10)}… - this key is destroyed`);
+    const k = shamir.combine(shares);
+    shares.forEach((s) => zeroize(s));
+    return k;
+  }
+
+  private async storeShares(id: string, secret: Uint8Array, expiresAt: number): Promise<string> {
+    const [device, s1, s2] = shamir.split(secret, 3, 2);
+    const [g1, g2] = this.cfg.guardians;
+    const res = await Promise.allSettled([g1.putShare(this.vault, id, s1, expiresAt), g2.putShare(this.vault, id, s2, expiresAt)]);
+    zeroize(s1, s2);
+    const bad = res.find((r) => r.status === "rejected") as PromiseRejectedResult | undefined;
+    if (bad) {
+      await this.guardianShred([id], "user").catch(() => {});
+      throw new Error(`guardian storage failed: ${bad.reason?.message ?? bad.reason}`);
+    }
+    const hex = toHex(device);
+    zeroize(device);
+    return hex;
+  }
+
+  /** Get (or create) the collection key for schema+epoch, making sure its lease covers `untilMs`. */
+  private async collectionKey(schemaId: string, epoch: string, untilMs?: number, step: Step = noop): Promise<{ key: Uint8Array; collectionId: Hex }> {
+    const collectionId = this.vault.collectionId(schemaId, epoch);
+    let c = await this.vault.getCollection(collectionId);
+    if (c?.status === "shredded") throw new Error(`collection ${schemaId}/${epoch} was shredded`);
+    if (!c) {
+      if (untilMs === undefined) {
+        // known on another device only: fetch from guardians
+        return { key: await this.collectShares(collectionId, undefined), collectionId };
+      }
+      step(`Creating collection key for ${schemaId} / ${epoch} (2-of-3)…`);
+      const key = aead.newKey();
+      try {
+        const deviceShare = await this.storeShares(collectionId, key, untilMs);
+        c = { collectionId, schemaId, epoch, deviceShare, expiresAtMs: untilMs, status: "live" };
+        await this.vault.saveCollection(c);
+        return { key, collectionId };
+      } catch (e) {
+        if (!(e instanceof Error && /already stored/.test(e.message))) throw e;
+        // created earlier from another device (or before recovery): use the guardians' copy
+        const existing = await this.collectShares(collectionId, undefined);
+        await this.vault.saveCollection({ collectionId, schemaId, epoch, expiresAtMs: untilMs, status: "live" });
+        await this.extendGuardians([{ recordId: collectionId, expiresAt: untilMs }]);
+        return { key: existing, collectionId };
+      }
+    }
+    if (untilMs !== undefined && untilMs > c.expiresAtMs) {
+      await this.extendGuardians([{ recordId: collectionId, expiresAt: untilMs }]);
+      c.expiresAtMs = untilMs;
+      await this.vault.saveCollection(c);
+    }
+    return { key: await this.collectShares(collectionId, c.deviceShare), collectionId };
+  }
+
+  private async extendGuardians(items: { recordId: string; expiresAt: number }[]) {
+    await Promise.all(this.cfg.guardians.map((g) => g.extend(this.vault, items)));
+  }
+
+  private async contentKeyFor(r: VaultRecord, log: Step = noop) {
+    const dek = await this.collectShares(r.recordId, r.deviceShare, log);
+    const col = await this.vault.getCollection(r.collectionId);
+    const ck = await this.collectShares(r.collectionId, col?.deviceShare, log);
+    const k = contentKey(dek, ck);
+    zeroize(dek, ck);
+    return k;
+  }
+
+  // ================================================================== put
   async put(input: PutInput, step: Step = noop): Promise<PutResult> {
     const fields = Object.keys(input.values);
     if (fields.length === 0 || fields.length > SLOTS) throw new Error(`a record needs 1..${SLOTS} fields`);
+    const searchable = input.searchable ?? [];
+    if (searchable.length > MAX_SEARCHABLE || searchable.some((f) => !fields.includes(f))) throw new Error(`up to ${MAX_SEARCHABLE} searchable fields, all present in values`);
     const blocks = Math.ceil(input.retentionSeconds / BLOCK_SECONDS);
     if (blocks < 30 || BigInt(blocks) > MAX_LIFETIME) throw new Error("retention must be between 1 minute and ~182 days");
 
+    const epoch = epochOf();
+    const keyExpiresAt = Date.now() + input.retentionSeconds * 1000;
     const recordId = toHex(randomBytes(16));
-    const dek = aead.newKey();
     const salt = randomFieldSalt();
+    const { key: ck, collectionId } = await this.collectionKey(input.schemaId, epoch, keyExpiresAt, step);
+    const dek = aead.newKey();
+    const ckey = contentKey(dek, ck);
+    zeroize(ck);
+    let deviceShare: string | undefined;
     try {
       step("Committing fields (Poseidon2)…");
       const commitment = fieldHex(await computeCommitment(toSlots(fields, input.values), salt));
@@ -97,86 +226,58 @@ export class ArkivZK {
       if (input.attachment) {
         if (!this.cfg.blobs) throw new Error("no blob store configured for attachments");
         step(`Encrypting attachment and uploading to ${this.cfg.blobs.name}…`);
-        const ct = aead.seal(attachmentKey(dek), padPow2(input.attachment.bytes), attachmentAad(recordId));
-        const ref = await this.cfg.blobs.upload(ct);
-        attachment = { name: input.attachment.name, type: input.attachment.type, swarmRef: ref, size: input.attachment.bytes.length };
+        const sealed = aead.seal(attachmentKey(ckey), padPow2(input.attachment.bytes), attachmentAad(recordId));
+        attachment = { name: input.attachment.name, type: input.attachment.type, swarmRef: await this.cfg.blobs.upload(sealed), size: input.attachment.bytes.length };
       }
 
       step("Encrypting record (AES-256-GCM, padded)…");
-      const plaintext: RecordPlaintext = {
-        v: 1, schemaId: input.schemaId, recordId, fields, values: input.values, salt: salt.toString(),
-        createdAt: Date.now(), attachment,
-      };
-      const ct = aead.seal(dek, pad(encodeRecord(plaintext)), recordAad(input.schemaId, recordId));
+      const plaintext: RecordPlaintext = { v: 1, schemaId: input.schemaId, recordId, fields, values: input.values, salt: salt.toString(), createdAt: Date.now(), attachment };
+      const ct = aead.seal(ckey, pad(encodeRecord(plaintext)), recordAad(input.schemaId, recordId));
 
-      step("Splitting key 2-of-3 and sending shares to guardians (ML-KEM-768 + X25519)…");
-      const [deviceShare, s1, s2] = shamir.split(dek, 3, 2);
-      const keyExpiresAt = Date.now() + input.retentionSeconds * 1000;
-      const [g1, g2] = this.cfg.guardians;
-      const atts = await Promise.allSettled([
-        g1.putShare(this.vault, recordId, s1, keyExpiresAt),
-        g2.putShare(this.vault, recordId, s2, keyExpiresAt),
-      ]);
-      if (atts.some((a) => a.status === "rejected")) {
-        // never leave a half-stored key behind
-        await this.shredGuardians([recordId], "user").catch(() => {});
-        const err = atts.find((a) => a.status === "rejected") as PromiseRejectedResult;
-        throw new Error(`guardian storage failed: ${err.reason?.message ?? err.reason}`);
-      }
+      step("Splitting record key 2-of-3, shares to guardians (ML-KEM-768 + X25519)…");
+      deviceShare = await this.storeShares(recordId, dek, keyExpiresAt);
 
-      step("Writing encrypted entity to Arkiv (confirm in wallet)…");
+      const signerKey = this.mode === "ephemeral" ? (generatePrivateKey() as Hex) : undefined;
+      const bix: Record<string, string> = {};
+      searchable.forEach((f, i) => { bix[`bix${i}`] = this.vault.blindTag(input.schemaId, epoch, f, input.values[f] as string | number | boolean); });
+
+      step(this.mode === "ephemeral" ? "Funding one-time signer via relayer, writing to Arkiv…" : "Writing encrypted entity to Arkiv (confirm in wallet)…");
+      const env = this.envFor(this.mode, signerKey);
       let res;
       try {
-        res = await guardedBatch(this.cfg.write, {
+        res = await guardedBatch(env, {
           creates: [{
             schema: ZkRecord,
             values: {
-              app: APP, schemaId: input.schemaId, epoch: epochOf(), commitment, ct,
-              envId: this.vault.sealEnvId(recordId),
+              app: APP, schemaId: input.schemaId, epoch, commitment, ct,
+              envId: this.vault.sealEnvelope({ recordId, signerKey }),
               ...(attachment ? { swarmRef: attachment.swarmRef } : {}),
+              ...bix,
             },
             expiration: ExpirationTime.fromBlocks(blocks),
             flags: { readonly: true, permissionlessExtension: false },
             salt: BigInt(toHex(randomBytes(15))),
-          }],
+          }] as any,
         });
       } catch (e) {
-        await this.shredGuardians([recordId], "user").catch(() => {});
+        await this.guardianShred([recordId], "user").catch(() => {});
         throw e;
       }
-      const entityKey = res.createdEntities[0] as Hex;
+      const entityKey = (res.createdEntities[0] as string).toLowerCase() as Hex;
       const entity = await this.publicClient.getEntity(entityKey, ZkRecord);
-      const now = await this.blockNow();
+      const now = await this.publicClient.getBlockNumber();
       const guardianKeys = await Promise.all(this.cfg.guardians.map(async (g) => (await g.info()).signPublicKey));
-
       await this.vault.saveRecord({
-        entityKey: entityKey.toLowerCase() as Hex, recordId, schemaId: input.schemaId, fields, commitment,
-        createdAt: Date.now(), expiresAtBlock: entity.$expiresAt.toString(), expiresAtMs: this.msAt(entity.$expiresAt, now),
-        swarmRef: attachment?.swarmRef, guardians: guardianKeys, deviceShare: toHex(deviceShare), status: "live", proofKeys: [],
+        entityKey, recordId, schemaId: input.schemaId, fields, commitment, createdAt: Date.now(),
+        expiresAtBlock: entity.$expiresAt.toString(), expiresAtMs: this.msAt(entity.$expiresAt, now),
+        swarmRef: attachment?.swarmRef, guardians: guardianKeys, deviceShare, status: "live", proofKeys: [],
+        collectionId, epoch, signer: this.mode, signerKey,
       });
-      zeroize(deviceShare, s1, s2);
       step("Done");
-      return { entityKey, txHash: res.txHash as Hex, expiresAtBlock: entity.$expiresAt, commitment, swarmRef: attachment?.swarmRef };
+      return { entityKey, txHash: res.txHash as Hex, expiresAtBlock: entity.$expiresAt, commitment, swarmRef: attachment?.swarmRef, signer: env.account };
     } finally {
-      zeroize(dek);
+      zeroize(dek, ckey);
     }
-  }
-
-  // ------------------------------------------------------------------ keys
-  /** Rebuild a record's DEK from any 2 of: device share, guardian 1, guardian 2. */
-  private async dekFor(r: VaultRecord, log: Step = noop): Promise<Uint8Array> {
-    const shares: Uint8Array[] = [];
-    if (r.deviceShare) { shares.push(fromHex(r.deviceShare)); log("device share: present"); }
-    else log("device share: none (destroyed or new device)");
-    for (const g of this.cfg.guardians) {
-      if (shares.length >= 2) break;
-      try { shares.push(await g.fetchShare(this.vault, r.recordId)); log(`${(await g.info()).name}: share released`); }
-      catch (e: any) { log(`${g.url}: ${e.message}`); }
-    }
-    if (shares.length < 2) throw new Error("fewer than 2 key shares exist - this record's key is destroyed");
-    const dek = shamir.combine(shares);
-    shares.forEach((s) => zeroize(s));
-    return dek;
   }
 
   private async requireRecord(entityKey: string) {
@@ -185,33 +286,32 @@ export class ArkivZK {
     return r;
   }
 
-  // ------------------------------------------------------------------ get
+  // ================================================================== get
   async get(entityKey: string): Promise<{ record: RecordPlaintext; attachment?: Uint8Array }> {
     const r = await this.requireRecord(entityKey);
     if (r.status === "shredded") throw new Error("record was shredded");
     const entity = await this.publicClient.getEntity(entityKey as Hex, ZkRecord);
-    const dek = await this.dekFor(r);
+    const ckey = await this.contentKeyFor(r);
     try {
-      const record = decodeRecord(unpad(aead.open(dek, fromHex(entity.ct.value), recordAad(r.schemaId, r.recordId))));
+      const record = decodeRecord(unpad(aead.open(ckey, fromHex(entity.ct.value), recordAad(r.schemaId, r.recordId))));
       if (record.recordId !== r.recordId) throw new Error("record id mismatch");
       let attachment: Uint8Array | undefined;
       if (record.attachment && this.cfg.blobs) {
-        const ct = await this.cfg.blobs.download(record.attachment.swarmRef);
-        attachment = unpadPow2(aead.open(attachmentKey(dek), ct, attachmentAad(r.recordId)));
+        const sealed = await this.cfg.blobs.download(record.attachment.swarmRef);
+        attachment = unpadPow2(aead.open(attachmentKey(ckey), sealed, attachmentAad(r.recordId)));
       }
       return { record, attachment };
     } finally {
-      zeroize(dek);
+      zeroize(ckey);
     }
   }
 
-  // ------------------------------------------------------------------ list (+ expiry erasure)
+  // ================================================================== list (+ expiry erasure)
   async list(): Promise<VaultRecord[]> {
     const recs = await this.vault.listRecords();
     const now = Date.now();
     for (const r of recs) {
       if (r.status === "live" && r.expiresAtMs <= now) {
-        // retention over: guardians already auto-destroyed their shares; drop ours too
         r.status = "expired";
         await this.vault.forgetSecrets(r.entityKey, { status: "expired" });
       }
@@ -219,7 +319,27 @@ export class ArkivZK {
     return recs;
   }
 
-  // ------------------------------------------------------------------ prove
+  // ================================================================== blind-index search
+  /**
+   * Exact-match search over encrypted fields. Arkiv sees only HMAC tags; one OR query per chunk
+   * covers 3 tag columns x E epochs. Returns entity keys of matching records owned by this vault.
+   */
+  async search(schemaId: string, field: string, value: string | number | boolean, epochs?: string[]) {
+    const eps = epochs ?? [...new Set([epochOf(), ...(await this.vault.listCollections()).filter((c) => c.schemaId === schemaId).map((c) => c.epoch)])];
+    const tags = eps.map((e) => this.vault.blindTag(schemaId, e, field, value));
+    const exprs = tags.flatMap((t) => [eq("bix0", t), eq("bix1", t), eq("bix2", t)]);
+    const keys: Hex[] = [];
+    let queries = 0;
+    for (let i = 0; i < exprs.length; i += 18) {
+      const res = await this.publicClient.select({ $key: true }).from(ZkRecord)
+        .where(and(eq("app", APP), eq("schemaId", schemaId), or(...exprs.slice(i, i + 18)))).limit(100).fetch();
+      queries++;
+      keys.push(...res.entities.map((e) => e.$key.toLowerCase() as Hex));
+    }
+    return { keys, queries, tagsTried: tags.length };
+  }
+
+  // ================================================================== prove
   async prove(entityKey: string, claim: Claim, verifierNonce: string, step: Step = noop) {
     const r = await this.requireRecord(entityKey);
     if (r.status !== "live") throw new Error(`record is ${r.status}`);
@@ -231,7 +351,6 @@ export class ArkivZK {
     const { record } = await this.get(entityKey);
     const fields = toSlots(record.fields, record.values);
     const salt = BigInt(record.salt);
-
     let min: bigint, max: bigint;
     if (claim.equals !== undefined) min = max = encodeField(claim.equals);
     else {
@@ -252,14 +371,11 @@ export class ArkivZK {
       min: min.toString(), max: max.toString(), equals: claim.equals, nonce: verifierNonce, publicInputs: p.publicInputs,
     };
     const label = describeClaim(statement);
-
     step("Checking verification key registry on Arkiv…");
-    const vkExists = await this.publicClient.select({ $key: true }).from(ZkVerificationKey)
-      .where(and(eq("app", APP), eq("vkHash", vkh))).limit(1).fetch();
-
-    step("Publishing proof to Arkiv (confirm in wallet)…");
+    const vkExists = await this.publicClient.select({ $key: true }).from(ZkVerificationKey).where(and(eq("app", APP), eq("vkHash", vkh))).limit(1).fetch();
     const recEntity = await this.publicClient.getEntity(key, ZkRecord);
-    const res = await guardedBatch(this.cfg.write, {
+    step("Publishing proof to Arkiv…");
+    const res = await guardedBatch(this.envFor(r.signer, r.signerKey), {
       creates: [
         {
           schema: ZkProof,
@@ -267,39 +383,51 @@ export class ArkivZK {
             app: APP, recordKey: key, circuitId: RANGE_CIRCUIT_ID, vkHash: vkh, audience: audienceFor(verifierNonce),
             claim: label.slice(0, 120), statement: utf8(JSON.stringify(statement)), proof: p.proof,
           },
-          // a proof never outlives its record
-          expiration: ExpirationTime.atBlock(recEntity.$expiresAt),
+          expiration: ExpirationTime.atBlock(recEntity.$expiresAt), // a proof never outlives its record
           flags: { readonly: true, permissionlessExtension: false },
         },
         ...(vkExists.entities.length === 0
-          ? [{
-              schema: ZkVerificationKey,
-              values: { app: APP, circuitId: RANGE_CIRCUIT_ID, vkHash: vkh, vk },
-              expiration: ExpirationTime.max(),
-              flags: { readonly: true, permissionlessExtension: true },
-            }]
+          ? [{ schema: ZkVerificationKey, values: { app: APP, circuitId: RANGE_CIRCUIT_ID, vkHash: vkh, vk }, expiration: ExpirationTime.max(), flags: { readonly: true, permissionlessExtension: true } }]
           : []),
       ] as any,
     });
-    const proofEntityKey = res.createdEntities[0] as Hex;
-    await this.vault.saveRecord({ ...r, proofKeys: [...r.proofKeys, proofEntityKey.toLowerCase() as Hex] });
+    const proofEntityKey = (res.createdEntities[0] as string).toLowerCase() as Hex;
+    await this.vault.saveRecord({ ...r, proofKeys: [...r.proofKeys, proofEntityKey] });
     return { proofEntityKey, txHash: res.txHash as Hex, statementText: label, proveMs };
   }
 
-  // ------------------------------------------------------------------ shred
-  private async shredGuardians(recordIds: string[], reason: "user" | "account" | "expiry") {
-    const req = buildShredRequest(this.vault, recordIds, reason);
+  // ================================================================== shred
+  private async guardianShred(ids: string[], reason: "user" | "account" | "expiry") {
+    const req = buildShredRequest(this.vault, ids, reason);
     const settled = await Promise.allSettled(this.cfg.guardians.map((g) => g.shred(req)));
     return { req, settled };
   }
 
-  /**
-   * Crypto-shred records:
-   *  1. both guardians destroy their shares and sign attestations (need >= 1 so that < 2 shares survive)
-   *  2. device share is deleted
-   *  3. ONE atomic Arkiv tx: delete record + its proofs, create a ShredReceipt per record
-   */
-  async shred(entityKeys: string[], onStep: (id: string, status: "running" | "done" | "error", detail?: string) => void = () => {}) {
+  /** Destroy keys for `ids` on both guardians (one request each, in parallel) and locally. */
+  private async destroyKeys(ids: string[], reason: "user" | "account", onStep: StepFn) {
+    const { req, settled } = await this.guardianShred(ids, reason);
+    const attestations: DestroyedAttestation[] = [];
+    settled.forEach((s, i) => {
+      const id = `guardian-${i + 1}`;
+      if (s.status === "fulfilled") { attestations.push(s.value); onStep(id, "done", `${s.value.guardianName} signed destruction of ${ids.length} key(s)`); }
+      else onStep(id, "error", String((s.reason as Error)?.message ?? s.reason));
+    });
+    if (attestations.length === 0) throw new Error("no guardian confirmed destruction - nothing was changed, try again");
+    return { req, attestations };
+  }
+
+  private async markPending(recs: VaultRecord[], req: ShredRequest, attestations: DestroyedAttestation[], level: ShredLevel) {
+    const liveAll = await liveKeys(this.publicClient, recs.flatMap((r) => [r.entityKey, ...r.proofKeys]));
+    for (const r of recs) {
+      const live = [r.entityKey, ...r.proofKeys].filter((k) => liveAll.has(k.toLowerCase())) as Hex[];
+      const fresh = (await this.vault.getRecord(r.entityKey))!;
+      delete fresh.deviceShare; // key share gone; signerKey kept until the Arkiv cleanup succeeds
+      await this.vault.saveRecord({ ...fresh, status: "shredded", pendingShred: { request: req, attestations, liveEntities: live, level } as any });
+    }
+  }
+
+  /** Record-level crypto-shred. */
+  async shred(entityKeys: string[], onStep: StepFn = () => {}): Promise<ShredResult> {
     const recs: VaultRecord[] = [];
     for (const k of entityKeys) {
       const r = await this.requireRecord(k);
@@ -307,128 +435,166 @@ export class ArkivZK {
       recs.push(r);
     }
     const fresh = recs.filter((r) => !r.pendingShred);
+    let keysDestroyed = 0;
     if (fresh.length) {
-      const { req, settled } = await this.shredGuardians(fresh.map((r) => r.recordId), "user");
-      const attestations = [];
-      for (let i = 0; i < settled.length; i++) {
-        const s = settled[i];
-        const id = `guardian-${i + 1}`;
-        if (s.status === "fulfilled") { attestations.push(s.value); onStep(id, "done", `${s.value.guardianName} signed destruction`); }
-        else onStep(id, "error", String(s.reason?.message ?? s.reason));
-      }
-      if (attestations.length === 0) throw new Error("no guardian confirmed destruction - nothing was changed, try again");
-
+      const { req, attestations } = await this.destroyKeys(fresh.map((r) => r.recordId), "user", onStep);
       onStep("device", "running");
-      const liveAll = await liveKeys(this.publicClient, fresh.flatMap((r) => [r.entityKey, ...r.proofKeys]));
-      for (const r of fresh) {
-        const live = [r.entityKey, ...r.proofKeys].filter((k) => liveAll.has(k.toLowerCase())) as Hex[];
-        await this.vault.forgetSecrets(r.entityKey, { status: "shredded", pendingShred: { request: req, attestations, liveEntities: live } });
-      }
-      onStep("device", "done", "device share erased");
+      await this.markPending(fresh, req, attestations, "record");
+      keysDestroyed = fresh.length;
+      onStep("device", "done", "device shares erased");
     }
-    return this.publishShredReceipts(recs.map((r) => r.entityKey), onStep);
+    const out = await this.publishShredReceipts(recs.map((r) => r.entityKey), onStep);
+    return { ...out, keysDestroyed };
   }
 
-  /** Step 3 of shred, safe to retry: keys are already gone, this only cleans Arkiv and publishes receipts. */
-  async publishShredReceipts(entityKeys: string[], onStep: (id: string, status: "running" | "done" | "error", detail?: string) => void = () => {}) {
+  /**
+   * Collection / epoch shred: destroy the collection key(s). Every record in them dies at once —
+   * including records this device doesn't know about — with O(#collections) key operations.
+   */
+  async shredCollections(collections: { schemaId: string; epoch: string }[], level: "collection" | "epoch", onStep: StepFn = () => {}): Promise<ShredResult> {
+    const ids = collections.map((c) => this.vault.collectionId(c.schemaId, c.epoch));
+    const all = await this.vault.listRecords();
+    const recs = all.filter((r) => ids.includes(r.collectionId) && r.status !== "shredded");
+    // one guardian request: collection keys + (for hygiene) the record keys we know about
+    const { req, attestations } = await this.destroyKeys([...ids, ...recs.map((r) => r.recordId)], "user", onStep);
+    onStep("device", "running");
+    for (const id of ids) {
+      const c = await this.vault.getCollection(id);
+      const [schemaId, epoch] = c ? [c.schemaId, c.epoch] : [collections[ids.indexOf(id)].schemaId, collections[ids.indexOf(id)].epoch];
+      await this.vault.saveCollection({ collectionId: id, schemaId, epoch, expiresAtMs: c?.expiresAtMs ?? 0, status: "shredded" });
+    }
+    await this.markPending(recs, req, attestations, level);
+    onStep("device", "done", `${ids.length} collection key(s) + ${recs.length} record key(s) erased`);
+    if (recs.length === 0) { onStep("arkiv", "done", "no known live entities to clean up"); return { txHashes: [], receipts: [], deleted: [], level, keysDestroyed: ids.length }; }
+    const out = await this.publishShredReceipts(recs.map((r) => r.entityKey), onStep);
+    return { ...out, level, keysDestroyed: ids.length + recs.length };
+  }
+
+  async shredEpoch(epoch: string, onStep: StepFn = () => {}) {
+    const cols = (await this.vault.listCollections()).filter((c) => c.epoch === epoch && c.status === "live");
+    if (cols.length === 0) throw new Error(`no live collections for ${epoch}`);
+    return this.shredCollections(cols, "epoch", onStep);
+  }
+
+  /** Account-level: every collection + record key, then the vault identity itself (envSecret, controller key). */
+  async shredAccount(onStep: StepFn = () => {}) {
+    const cols = (await this.vault.listCollections()).filter((c) => c.status === "live");
+    const res = cols.length ? await this.shredCollections(cols, "epoch", onStep) : { txHashes: [], receipts: [], deleted: [], level: "account" as const, keysDestroyed: 0 };
+    await this.vault.destroyIdentity();
+    onStep("identity", "done", "controller key + envelope secret destroyed");
+    return { ...res, level: "account" as const };
+  }
+
+  /** Arkiv part of a shred, safe to retry: delete live entities + publish receipts, one tx per owner, owners in parallel. */
+  async publishShredReceipts(entityKeys: string[], onStep: StepFn = () => {}) {
     const recs = (await Promise.all(entityKeys.map((k) => this.vault.getRecord(k)))).filter((r): r is VaultRecord => !!r?.pendingShred);
     if (recs.length === 0) throw new Error("nothing pending");
-    onStep("arkiv", "running", "deleting entities + publishing receipts in one transaction");
-    // still-live entities only (deleting a missing entity would revert the whole batch)
+    onStep("arkiv", "running", "deleting entities + publishing receipts");
     const stillLive = await liveKeys(this.publicClient, recs.flatMap((r) => r.pendingShred!.liveEntities));
-    const deletes = recs.flatMap((r) => r.pendingShred!.liveEntities)
-      .filter((k) => stillLive.has(k.toLowerCase())).map((k) => ({ entityKey: k as Hex }));
-    let res;
+    let results;
     try {
-      res = await guardedBatch(this.cfg.write, {
-        deletes,
-        creates: recs.map((r) => ({
+      results = await this.perSigner(recs, (group) => ({
+        deletes: group.flatMap((r) => r.pendingShred!.liveEntities).filter((k) => stillLive.has(k.toLowerCase())).map((k) => ({ entityKey: k as Hex })),
+        creates: group.map((r) => ({
           schema: ShredReceipt,
           values: {
-            app: APP, recordKey: r.entityKey, level: "record", shreddedAt: u64(BigInt(Date.now())),
-            request: utf8(JSON.stringify(r.pendingShred!.request)),
-            attestations: utf8(JSON.stringify(r.pendingShred!.attestations)),
+            app: APP, recordKey: r.entityKey, level: (r.pendingShred as any).level ?? "record", shreddedAt: u64(BigInt(Date.now())),
+            request: utf8(JSON.stringify(r.pendingShred!.request)), attestations: utf8(JSON.stringify(r.pendingShred!.attestations)),
           },
           expiration: ExpirationTime.max(),
           flags: { readonly: true, permissionlessExtension: true },
-        })),
-      });
+        })) as any,
+      }));
     } catch (e: any) {
       onStep("arkiv", "error", e.message);
       throw e;
     }
-    const receipts = res.createdEntities as Hex[];
-    for (let i = 0; i < recs.length; i++) {
-      const { pendingShred, ...rest } = recs[i];
-      await this.vault.saveRecord({ ...rest, status: "shredded", receiptKey: receipts[i].toLowerCase() as Hex, proofKeys: [] });
+    const txHashes: Hex[] = [], receipts: Hex[] = [], deleted: Hex[] = [];
+    for (const r of results) {
+      if (!r) continue;
+      txHashes.push(r.res.txHash as Hex);
+      deleted.push(...(r.res.deletedEntities as Hex[]));
+      for (let i = 0; i < r.group.length; i++) {
+        const receiptKey = (r.res.createdEntities[i] as string).toLowerCase() as Hex;
+        receipts.push(receiptKey);
+        const { pendingShred, signerKey, ...rest } = r.group[i];
+        await this.vault.saveRecord({ ...rest, status: "shredded", receiptKey, proofKeys: [] });
+      }
     }
-    onStep("arkiv", "done", `tx ${res.txHash}`);
-    return { txHash: res.txHash as Hex, receipts, deleted: deletes.map((d) => d.entityKey) };
+    onStep("arkiv", "done", `${txHashes.length} tx: ${txHashes.map((h) => h.slice(0, 10) + "…").join(", ")}`);
+    return { txHashes, receipts, deleted, level: "record" as ShredLevel };
   }
 
-  // ------------------------------------------------------------------ recovery (lost device)
-  /** With a restored vault (recovery kit), find this wallet's records on Arkiv and re-attach via guardian shares. */
-  async recover(owner: Hex, step: Step = noop) {
+  // ================================================================== recovery
+  /** Find records on Arkiv that this vault's envSecret opens (wallet mode: by owner; ephemeral: full scan). */
+  async recover(owner?: Hex, step: Step = noop) {
+    const qp = new QueryPlanner(this.publicClient);
+    const { rows, queries } = await qp.run({
+      from: ZkRecord, where: { app: APP }, ...(owner && this.mode === "wallet" ? { ownedBy: owner } : {}),
+      select: ["envId", "schemaId", "epoch", "commitment", "swarmRef", "$expiresAt", "$owner"],
+    });
+    step(`scanned ${rows.length} arkivzk records in ${queries} queries`);
+    const now = await this.publicClient.getBlockNumber();
+    const guardians = await Promise.all(this.cfg.guardians.map(async (g) => (await g.info()).signPublicKey));
     const found: Hex[] = [];
-    let offset = 0;
-    for (;;) {
-      const page = await this.publicClient.select({ $key: true, $expiresAt: true, envId: true, schemaId: true, commitment: true, swarmRef: true })
-        .from(ZkRecord).where(eq("app", APP)).ownedBy(owner).limit(100).offset(offset).fetch();
-      for (const e of page.entities) {
-        const recordId = this.vault.openEnvId(fromHex(e.envId.value));
-        if (!recordId || (await this.vault.getRecord(e.$key))) continue;
-        const now = await this.blockNow();
-        const guardians = await Promise.all(this.cfg.guardians.map(async (g) => (await g.info()).signPublicKey));
-        const r: VaultRecord = {
-          entityKey: e.$key.toLowerCase() as Hex, recordId, schemaId: e.schemaId.value, fields: [], commitment: e.commitment.value,
-          createdAt: Date.now(), expiresAtBlock: e.$expiresAt.toString(), expiresAtMs: this.msAt(e.$expiresAt, now),
-          swarmRef: e.swarmRef?.value, guardians, status: "live", proofKeys: [],
-        };
-        try {
-          const ent = await this.publicClient.getEntity(e.$key, ZkRecord);
-          const dek = await this.dekFor(r);
-          const rec = decodeRecord(unpad(aead.open(dek, fromHex(ent.ct.value), recordAad(r.schemaId, recordId))));
-          zeroize(dek);
-          r.fields = rec.fields;
-          r.createdAt = rec.createdAt;
-          await this.vault.saveRecord(r);
-          found.push(r.entityKey);
-          step(`recovered ${r.entityKey}`);
-        } catch (err: any) {
-          step(`skipped ${e.$key}: ${err.message}`);
-        }
+    for (const e of rows as any[]) {
+      const env = this.vault.openEnvelope(fromHex(e.envId.value));
+      if (!env || (await this.vault.getRecord(e.$key))) continue;
+      const collectionId = this.vault.collectionId(e.schemaId.value, e.epoch.value);
+      const r: VaultRecord = {
+        entityKey: e.$key.toLowerCase(), recordId: env.recordId, schemaId: e.schemaId.value, fields: [], commitment: e.commitment.value,
+        createdAt: Date.now(), expiresAtBlock: e.$expiresAt.toString(), expiresAtMs: this.msAt(e.$expiresAt, now),
+        swarmRef: e.swarmRef?.value, guardians, status: "live", proofKeys: [], collectionId, epoch: e.epoch.value,
+        signer: env.signerKey ? "ephemeral" : "wallet", signerKey: env.signerKey,
+      };
+      try {
+        const full = await this.publicClient.getEntity(e.$key, ZkRecord);
+        const ckey = await this.contentKeyFor(r);
+        const rec = decodeRecord(unpad(aead.open(ckey, fromHex(full.ct.value), recordAad(r.schemaId, env.recordId))));
+        zeroize(ckey);
+        r.fields = rec.fields;
+        r.createdAt = rec.createdAt;
+        await this.vault.saveRecord(r);
+        if (!(await this.vault.getCollection(collectionId)))
+          await this.vault.saveCollection({ collectionId, schemaId: r.schemaId, epoch: r.epoch, expiresAtMs: r.expiresAtMs, status: "live" });
+        found.push(r.entityKey);
+        step(`recovered ${r.entityKey}`);
+      } catch (err: any) {
+        step(`skipped ${e.$key}: ${err.message}`);
       }
-      if (page.entities.length + page.skipped < 100) break;
-      offset += 100;
     }
     return found;
   }
 
-  // ------------------------------------------------------------------ "break it": decrypt archived calldata
-  /**
-   * Given raw ciphertext + envId captured by an archive node, try to decrypt with every key share
-   * that still exists anywhere. Before shred this succeeds for the owner; after shred it can't.
-   */
-  async tryDecryptCaptured(ct: Uint8Array, envId: Uint8Array, schemaId: string) {
+  // ================================================================== "break it": decrypt archived calldata
+  async tryDecryptCaptured(ct: Uint8Array, envId: Uint8Array, schemaId: string, epoch: string) {
     const log: string[] = [];
-    const recordId = this.vault.openEnvId(envId);
-    if (!recordId) { log.push("envId does not open with this vault's key: not our record, or identity destroyed"); return { success: false, log }; }
-    log.push(`envId opened -> recordId ${recordId.slice(0, 10)}…`);
-    const local = (await this.vault.listRecords()).find((r) => r.recordId === recordId);
-    const r: VaultRecord = local ?? {
-      entityKey: "0x", recordId, schemaId, fields: [], commitment: "", createdAt: 0, expiresAtBlock: "0", expiresAtMs: 0,
-      guardians: [], status: "live", proofKeys: [],
-    } as VaultRecord;
-    let dek: Uint8Array;
-    try { dek = await this.dekFor(r, (m) => log.push(m)); }
-    catch (e: any) { log.push(e.message); log.push("RESULT: ciphertext is undecryptable noise"); return { success: false, log }; }
+    const env = this.vault.openEnvelope(envId);
+    if (!env) { log.push("envId does not open with this vault: not our record, or identity destroyed"); log.push("RESULT: undecryptable noise"); return { success: false, log }; }
+    log.push(`envId opened -> recordId ${env.recordId.slice(0, 10)}…`);
+    const local = (await this.vault.listRecords()).find((r) => r.recordId === env.recordId);
+    const col = await this.vault.getCollection(this.vault.collectionId(schemaId, epoch));
+    log.push(`record key: device share ${local?.deviceShare ? "present" : "absent"}; collection key: device share ${col?.deviceShare ? "present" : "absent"}${col?.status === "shredded" ? " (collection shredded)" : ""}`);
+    let ckey: Uint8Array;
     try {
-      const rec = decodeRecord(unpad(aead.open(dek, ct, recordAad(schemaId, recordId))));
+      const dek = await this.collectShares(env.recordId, local?.deviceShare, (m) => log.push(m));
+      const ck = await this.collectShares(this.vault.collectionId(schemaId, epoch), col?.deviceShare, (m) => log.push(m));
+      ckey = contentKey(dek, ck);
+      zeroize(dek, ck);
+    } catch (e: any) {
+      log.push(e.message);
+      log.push("RESULT: ciphertext is undecryptable noise");
+      return { success: false, log };
+    }
+    try {
+      const rec = decodeRecord(unpad(aead.open(ckey, ct, recordAad(schemaId, env.recordId))));
       log.push(`decrypted: ${JSON.stringify(rec.values)}`);
       return { success: true, log };
     } catch {
-      log.push("key reconstructed but AES-GCM authentication failed");
+      log.push("keys reconstructed but AES-GCM authentication failed");
       return { success: false, log };
-    } finally { zeroize(dek); }
+    } finally { zeroize(ckey); }
   }
 }
+
+export { GuardianError };

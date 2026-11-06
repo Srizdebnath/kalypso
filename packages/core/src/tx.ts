@@ -44,6 +44,8 @@ export type WriteEnv = {
   account: Address;
   /** Max fee in wei the user approved for one write (default 0.05 tGLM). */
   maxFeeWei?: bigint;
+  /** Called with the exact gas cap cost before the balance check (e.g. a relayer tops up an ephemeral signer). */
+  ensureFunds?: (account: Address, costWei: bigint) => Promise<void>;
 };
 
 export const RABDI_CHAIN_ID = 7794095;
@@ -113,6 +115,7 @@ export async function guardedBatch(env: WriteEnv, batch: ExecuteBatchParameters)
   const cost = gas * gasPrice;
   const maxFee = env.maxFeeWei ?? 50_000_000_000_000_000n;
   if (cost > maxFee) throw new ArkivWriteError(`Gas cap ${cost} wei exceeds approved max fee ${maxFee} wei`);
+  if (env.ensureFunds) await env.ensureFunds(env.account, cost);
   const balance = await env.publicClient.getBalance({ address: env.account });
   if (cost > balance) throw new ArkivWriteError("Insufficient tGLM balance - use the Arkiv faucet");
 
