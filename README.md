@@ -36,3 +36,35 @@ const proof          = await zk.prove(entityKey, "age>=18")       // share with 
 const ok             = await ArkivZK.verify(entityKey, proof)      // anyone, no key needed
 const receipt        = await zk.shred(entityKey)                   // gone for everyone, forever
 ```
+
+## Architecture at a glance
+
+Diagram sources live in [`diagrams/`](diagrams/) (mermaid). Regenerate PNGs with `npx @mermaid-js/mermaid-cli -i diagrams/<name>.mmd -o docs/img/<name>.png -s 2`.
+
+### Library layout
+![library layout](docs/img/library-layout.png)
+
+### What lives where (only ciphertext + commitments are public)
+![what lives where](docs/img/what-lives-where.png)
+
+### Write flow – `zk.put`
+![write flow](docs/img/write-flow.png)
+
+### Verify flow – anyone, no keys
+![verify flow](docs/img/verify-flow.png)
+
+### Shred protocol – `zk.shred`
+![shred protocol](docs/img/shred-protocol.png)
+
+### Key custody (2-of-3, hybrid post-quantum transport)
+![custody](docs/img/custody.png)
+
+### Key hierarchy and shred levels
+![key hierarchy](docs/img/key-hierarchy.png)
+![shred levels](docs/img/shred-levels.png)
+
+### Record lifecycle
+![lifecycle](docs/img/lifecycle.png)
+
+### ZK + shredding together
+![zk and shred](docs/img/zk-and-shred.png)
