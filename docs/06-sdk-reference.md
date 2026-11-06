@@ -181,6 +181,44 @@ await q.recordsOf(me, "medical.v1");          // metadata only, ciphertext not d
 
 ---
 
+## 8b. Two-level keys and shred levels
+
+```
+content key = HKDF( recordDEK ‖ collectionKey )      collection = schemaId × month
+              2-of-3      2-of-3
+```
+
+```ts
+await zk.shred([entityKey]);                                   // record: one record key
+await zk.shredCollections([{ schemaId: "medical.v1", epoch: "2026-11" }], "collection");
+await zk.shredEpoch("2026-11");                                // every collection of that month
+await zk.shredAccount();                                       // everything + vault identity
+```
+
+Collection/epoch shred destroys **one key per collection**. Every record encrypted under it dies at once, including records created on another device that this vault never saw. The guardian request also carries the record keys this vault knows about (hygiene), all in one round trip.
+
+## 8c. One-time signers + gas relayer (unlinkable owners)
+
+```ts
+import { httpRelayer } from "@arkivzk/sdk";
+const zk = new ArkivZK({ ...cfg, signer: "ephemeral", relayer: httpRelayer("/api/relayer") });
+await zk.put({...});   // $owner on Arkiv = a fresh address, funded by the shared relayer pool
+```
+
+- Each record gets a fresh secp256k1 key. It's stored sealed inside `envId` (only your envSecret opens it), so you can still delete or extend the record after recovering on a new device.
+- Before each write the signer proves key possession to the relayer (signed message, 2-minute freshness, per-IP rate limit, 0.05 tGLM cap per top-up). The relayer tops it up just enough for that transaction's gas cap.
+- On-chain, every one-time signer is funded by the **same pool address**. The anonymity set is everyone using that relayer. The relayer operator sees the request IP.
+- Trade-off: k records with k different owners need k transactions for shred/renew. arkivzk sends them **in parallel**, so latency stays about one transaction, but fees are k×.
+
+## 8d. Blind-index search on encrypted fields
+
+```ts
+await zk.put({ schemaId: "medical.v1", values: { age: 25, country: "IN", bloodGroup: "O+" }, searchable: ["country", "bloodGroup"], retentionSeconds });
+const { keys, queries } = await zk.search("medical.v1", "country", "in");   // normalized: trim + lowercase
+```
+
+Tag = `HMAC(HKDF(envSecret, schemaId‖month), field ‖ 0x00 ‖ value)` in indexed columns `bix0..bix2`. Arkiv only sees random-looking tags. Leakage, stated plainly: two of **your** records in the same month with the same value get the same tag, so equality is visible within that month. Across months and across users, tags don't link.
+
 ## 9. Recovery (lost device)
 
 ```ts
@@ -188,7 +226,8 @@ const kit = vault.exportRecoveryKit("a long passphrase you keep offline");   // 
 // new device:
 const vault2 = await Vault.importRecoveryKit(new IndexedDBKV(), sealer, kit, passphrase);
 const zk2 = new ArkivZK({ ...cfg, vault: vault2 });
-await zk2.recover(myWalletAddress);   // finds records on Arkiv, opens envIds, re-attaches via the 2 guardian shares
+await zk2.recover(myWalletAddress);   // wallet mode: ownedBy(wallet). Ephemeral mode: scans arkivzk records and keeps those whose envId opens
+// keys come back from the 2 guardian shares (record key + collection key)
 ```
 
 ---
@@ -200,7 +239,7 @@ ARKIV_ACCESS_KEY=… node archive/dist/indexer.js      # GET /captures, GET /cap
 ```
 
 ```ts
-const { success, log } = await zk.tryDecryptCaptured(ctFromArchive, envIdFromArchive, "medical.v1");
+const { success, log } = await zk.tryDecryptCaptured(ctFromArchive, envIdFromArchive, "medical.v1", "2026-11");
 // before shred: success=true (the owner can still read the archived copy)
 // after shred:  success=false, "fewer than 2 key shares exist - this record's key is destroyed"
 ```

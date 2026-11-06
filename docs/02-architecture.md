@@ -72,7 +72,7 @@ Rule: **nothing on Arkiv is ever decryptable without a key that lives off-chain 
 
 ## 2.3 Key hierarchy (the heart of shredding)
 
-> Implemented today: one random DEK per record, split 2-of-3, plus a controller identity key. The epoch/collection layers below are the roadmap design.
+> Implemented: content key = HKDF(record DEK ‖ collection key). Both are random, both are split 2-of-3 (device + 2 guardians). A collection = one schema in one month (epoch). Destroying either key kills the record.
 
 ```mermaid
 flowchart TB

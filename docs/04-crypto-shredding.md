@@ -22,8 +22,8 @@ below exists to make that true.
 | 5 | AES-256-GCM data encryption with AAD = schemaId, epoch, entity nonce | Swap / replay of ciphertexts |
 | 6 | Pad plaintext to size buckets (256B, 1KB, 4KB, 16KB…) | Length fingerprinting of shredded data |
 | 7 | Commitments are hiding (salted); salt shredded with DEK | Commitment brute force (e.g. low-entropy fields like age) |
-| 8 | *(roadmap)* Blind-index keys rotate per epoch and are shreddable | Searchable linkage after delete |
-| 9 | *(roadmap)* Ephemeral signer per record via a relayer | Owner linkage after delete. Today the user's wallet signs, so `$owner` links records to that wallet. |
+| 8 | Blind-index tags use a per-collection (schema × month) key, so tags rotate monthly; account shred destroys the key they derive from | Searchable linkage after delete |
+| 9 | Optional one-time signer per record, gas from a shared relayer pool; its key is deleted after shred | Owner linkage: `$owner` is a fresh address funded by the pool, not your wallet |
 | 10 | Every shred produces a signed, public **ShredReceipt** | User trust + auditability |
 
 ## 4.3 Custody: where keys live
@@ -45,7 +45,7 @@ flowchart TB
 
 ## 4.4 Shred levels
 
-> Implemented today: record-level shred (any number of records in one call) and automatic expiry shred. Collection/epoch/account levels below are currently done by shredding every record in that set (same effect, k records in one transaction). Separate collection/epoch keys are roadmap.
+> All four levels are implemented. Record: destroy that record's key. Collection/epoch: destroy the collection key (content key = HKDF(record key ‖ collection key)), which kills every record of that schema and month at once, including ones on other devices. Account: every key plus the vault identity.
 
 ```mermaid
 flowchart LR

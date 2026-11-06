@@ -31,6 +31,10 @@ Every number on this page was measured by scripts in this repo: `packages/sdk/be
 | `renew(k)` | O(k) | O(k) | **1** guardian RTT + 2·⌈k(1+p)/20⌉ queries + 1 tx | **1 tx**, k(1+p) extensions | – |
 | `QueryPlanner.run` | O(m) client filter | O(m · projection) | ⌈c/20⌉ · ⌈m/P⌉ queries | – | – |
 | `proofsFor(keys)` | O(c) | O(c) | ⌈c/20⌉ queries | – | – |
+| `shredEpoch` / `shredCollections(C)` | O(C + k_known) | O(C) | **1** guardian RTT | 1 tx per owner (wallet mode: 1) | k receipts |
+| key operations to kill all records of a month | **O(1) per collection**, independent of record count | | | | |
+| `search(field, value)` over E months | O(E) HMACs | O(E) | ⌈3E/18⌉ queries | – | – |
+| `put` in ephemeral mode | + 1 secp256k1 keygen | | + relayer RTT + funding tx | 1 tx | – |
 | `list` | O(R) vault decrypts | O(R) | 0 | – | – |
 | `recover` | O(R) | O(R) | ⌈R/100⌉ queries + R × (1 read + 2 guardian RTT) | – | – |
 | guardian sweeper | O(shares) every 10 s | O(1) | 0 | – | – |
@@ -72,6 +76,22 @@ First proof in a fresh process also pays a one-time WASM + SRS setup cost (≈1�
 | Partial failure | some records deleted, some not | all-or-nothing on Arkiv; keys destroyed first, receipt publish retryable |
 
 Example k=10, p=1: 30 txs → 1 tx. Reserved gas cap 30,000,000 → 12,600,000 (−58%). These are reserved caps under the Rabdi policy, not gas actually used. Gas used is in §4.
+
+### 3.1b Kill a whole month of data
+
+| | Before (record keys only) | After (two-level keys) |
+|---|---|---|
+| Key destructions for N records in a month | N | **1** (collection key) |
+| Records on other devices / not in this vault | missed | **also dead** (they share the collection key) |
+| Guardian round trips | 1 (batched) | 1 |
+
+### 3.1c Ownership privacy (ephemeral mode)
+
+| | Wallet mode | Ephemeral mode |
+|---|---|---|
+| `$owner` of your records | your wallet (linkable) | fresh address per record, funded by shared pool |
+| Shred/renew of k records | 1 tx | k txs **in parallel** (≈1 tx latency, k× fees) |
+| Recovery lookup | `ownedBy(wallet)`: ⌈R/100⌉ queries | scan of arkivzk records: ⌈N/100⌉ queries (N = all arkivzk records) |
 
 ### 3.2 Renew k records
 

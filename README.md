@@ -31,9 +31,10 @@ or archive indexer that synced the old blocks still holds the bytes forever.
 | Archive node indexer (raw calldata capture) | ✅ implemented, captures live Rabdi traffic |
 | Encrypted attachments on Swarm | ✅ implemented, needs a Bee node + postage batch to run |
 | Recovery kit (lost device) | ✅ implemented, tested |
-| Ephemeral per-record signers via relayer | 🛣 roadmap |
-| Blind-index search, epoch/collection keys | 🛣 roadmap |
-| TEE-attested guardians | 🛣 roadmap |
+| Ephemeral per-record signers + gas relayer (records unlinkable to your wallet) | ✅ implemented |
+| Two-level keys: collection (schema × month) key + record key; epoch & account shred | ✅ implemented |
+| Blind-index exact-match search on encrypted fields | ✅ implemented |
+| TEE-attested guardians | ❌ not implemented: needs SGX/TDX/Nitro hardware we don't have. Guardians are trusted via signatures + 2-of-3 threshold only. |
 
 ## Read in this order
 
