@@ -17,6 +17,12 @@ importers:
 
   apps/web:
     dependencies:
+      '@arkivzk/sdk':
+        specifier: workspace:*
+        version: link:../../packages/sdk
+      highlight.js:
+        specifier: ^11.12.0
+        version: 11.12.0
       mermaid:
         specifier: ^11
         version: 11.17.2
@@ -32,6 +38,9 @@ importers:
       react-markdown:
         specifier: ^10
         version: 10.1.0(@types/react@19.3.0)(react@19.3.0)(supports-color@7.2.0)
+      rehype-highlight:
+        specifier: ^7.0.2
+        version: 7.0.2
       remark-gfm:
         specifier: ^4
         version: 4.0.1(supports-color@7.2.0)
@@ -60,6 +69,15 @@ importers:
       typescript:
         specifier: ^5
         version: 5.9.3
+
+  archive:
+    dependencies:
+      '@arkiv-network/sdk':
+        specifier: 1.0.1
+        version: 1.0.1(typescript@5.9.3)(viem@2.57.16(typescript@5.9.3)(zod@4.6.7))
+      viem:
+        specifier: ^2.57.0
+        version: 2.57.16(typescript@5.9.3)(zod@4.6.7)
 
   guardian:
     dependencies:
@@ -103,6 +121,27 @@ importers:
       typescript:
         specifier: ^5.9.0
         version: 5.9.3
+
+  packages/sdk:
+    dependencies:
+      '@arkiv-network/sdk':
+        specifier: 1.0.1
+        version: 1.0.1(typescript@5.9.3)(viem@2.57.16(typescript@5.9.3)(zod@4.6.7))
+      '@arkivzk/core':
+        specifier: workspace:*
+        version: link:../core
+      '@arkivzk/crypto':
+        specifier: workspace:*
+        version: link:../crypto
+      '@arkivzk/vault':
+        specifier: workspace:*
+        version: link:../vault
+      '@arkivzk/zk':
+        specifier: workspace:*
+        version: link:../zk
+      viem:
+        specifier: ^2.57.0
+        version: 2.57.16(typescript@5.9.3)(zod@4.6.7)
 
   packages/vault:
     dependencies:
@@ -1818,6 +1857,9 @@ packages:
   hast-util-to-jsx-runtime@2.3.7:
     resolution: {integrity: sha512-F7DNV2NMcTxA4GqPVHnXzX+mpoPHAIY9rJAVH3CZ1FdBZOcBUEjUuvMkMpHVs/sicEtznh9tMGj5WUR9S4E2rg==}
 
+  hast-util-to-text@4.0.3:
+    resolution: {integrity: sha512-5yrlWOvGFs6CqHriUpSsNrjzT/Tdo+IOQudbznxOn8K5qblp18MJyzOg8IgDOKQ8MYgQcJA7SusuCjSpDr8mSA==}
+
   hast-util-whitespace@3.0.0:
     resolution: {integrity: sha512-88JUN06ipLwsnv+dVn+OIYOvAuvBMy/Qoi6O7mQHxdPXpjy+Cd6xRkWwux7DKO+4sYILtLBRIKgsdpS2gQc7qw==}
 
@@ -1826,6 +1868,14 @@ packages:
 
   hermes-parser@0.25.1:
     resolution: {integrity: sha512-6pEjquH3rqaI6cYAXYPcz9MS4rY6R4ngRgrgfDshRptUZIc3lw0MCIJIGDj9++mfySOuPTHB4nrSW99BCvOPIA==}
+
+  highlight.js@11.11.2:
+    resolution: {integrity: sha512-oaXMACAU0kzOMXBjWpNcX+vlwSBCIAiZ9BHa7gA15NOTtT2L/l8OSZDuqS2XppOhZBPJ7hm4o8ep2kyuip2uEQ==}
+    engines: {node: '>=12.0.0'}
+
+  highlight.js@11.12.0:
+    resolution: {integrity: sha512-nbfWpyRMcMrPMmDwJB+dhX/eiaPKtc2RB+0QZskqJ3WjRA/FDS0e9hZrx8EC/lbEv8gXy98FcDbNa/dspAaJMg==}
+    engines: {node: '>=12.0.0'}
 
   html-url-attributes@3.0.1:
     resolution: {integrity: sha512-ol6UPyBWqsrO6EJySPz2O7ZSr856WDrEzM5zMqp+FJJLGMW35cLYmmZnl0vztAZxRUoNZJFTCohfjuIJ8I4QBQ==}
@@ -2163,6 +2213,9 @@ packages:
   loose-envify@1.4.0:
     resolution: {integrity: sha512-lyuxPGr/Wfhrlem2CL/UcnUc1zcqKAImBDzukY7Y5F/yQiNdko6+fRLevlw1HgMySw7f611UIY408EtxRSoK3Q==}
     hasBin: true
+
+  lowlight@3.3.0:
+    resolution: {integrity: sha512-0JNhgFoPvP6U6lE/UdVsSq99tn6DhjjpAj5MxG49ewd2mOBVtwWYIT8ClyABhq198aXXODMU6Ox8DrGy/CpTZQ==}
 
   lru-cache@5.1.1:
     resolution: {integrity: sha512-KpNARQA3Iwv+jTA0utUVVbrh+Jlrr1Fv0e56GGzAFOXN7dk/FviaDW8LHmK52DlcH4WP2n6gI8vN1aesBFgo9w==}
@@ -2544,6 +2597,9 @@ packages:
   regexp.prototype.flags@1.5.4:
     resolution: {integrity: sha512-dYqgNSZbDwkaJ2ceRd9ojCGjBq+mOm9LmtXnAnEGyHhN/5R7iDW2TRw3h+o/jCFxus3P2LfWIIiwowAjANm7IA==}
     engines: {node: '>= 0.4'}
+
+  rehype-highlight@7.0.2:
+    resolution: {integrity: sha512-k158pK7wdC2qL3M5NcZROZ2tR/l7zOzjxXd5VGdcfIyoijjQqpHd3JKtYSBDpDZ38UI2WJWuFAtkMDxmx5kstA==}
 
   remark-gfm@4.0.1:
     resolution: {integrity: sha512-1quofZ2RQ9EWdeN34S79+KExV1764+wCUGop5CPL1WGdD0ocPpu91lzPGbwWMECpEpd42kJGQwzRfyov9j4yNg==}
@@ -4747,6 +4803,10 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
+  hast-util-to-text@4.0.3:
+    dependencies:
+      '@types/hast': 3.0.5
+
   hast-util-whitespace@3.0.0:
     dependencies:
       '@types/hast': 3.0.5
@@ -4756,6 +4816,10 @@ snapshots:
   hermes-parser@0.25.1:
     dependencies:
       hermes-estree: 0.25.1
+
+  highlight.js@11.11.2: {}
+
+  highlight.js@11.12.0: {}
 
   html-url-attributes@3.0.1: {}
 
@@ -5052,6 +5116,12 @@ snapshots:
   loose-envify@1.4.0:
     dependencies:
       js-tokens: 4.0.0
+
+  lowlight@3.3.0:
+    dependencies:
+      '@types/hast': 3.0.5
+      devlop: 1.1.0
+      highlight.js: 11.11.2
 
   lru-cache@5.1.1:
     dependencies:
@@ -5716,6 +5786,14 @@ snapshots:
       get-proto: 1.0.1
       gopd: 1.2.0
       set-function-name: 2.0.2
+
+  rehype-highlight@7.0.2:
+    dependencies:
+      '@types/hast': 3.0.5
+      hast-util-to-text: 4.0.3
+      lowlight: 3.3.0
+      unist-util-visit: 5.2.0
+      vfile: 6.0.3
 
   remark-gfm@4.0.1(supports-color@7.2.0):
     dependencies:

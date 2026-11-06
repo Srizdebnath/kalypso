@@ -7,6 +7,7 @@ import {
   DOMAIN,
   type DestroyedAttestation, type GuardianInfo, type PutShareRequest, type ShredRequest,
   type ShredRequestBody, type StoredAttestation,
+  type ExtendRequestBody, type ExtendedAttestation,
 } from "@arkivzk/core";
 
 // ------------------------------------------------------------------------------------------------
@@ -111,6 +112,8 @@ export type VaultRecord = {
   status: RecordStatus;
   proofKeys: `0x${string}`[];
   receiptKey?: `0x${string}`;
+  /** set between "keys destroyed" and "receipt published on Arkiv", so publishing can be retried */
+  pendingShred?: { request: ShredRequest; attestations: DestroyedAttestation[]; liveEntities: `0x${string}`[] };
 };
 
 type Identity = { controllerSk: string; envSecret: string; createdAt: number };
@@ -272,6 +275,16 @@ export class GuardianClient {
     } finally {
       zeroize(kp.secretKey);
     }
+  }
+
+  async extend(vault: Vault, recordIds: string[], expiresAt: number): Promise<ExtendedAttestation> {
+    const info = await this.info();
+    const body: ExtendRequestBody = { recordIds, controller: vault.controller, expiresAt, nonce: toHex(randomBytes(16)), ts: Date.now() };
+    const att = await this.call<ExtendedAttestation>("POST", "/shares/extend", { ...body, sig: vault.sign(DOMAIN.extend, body) });
+    const { sig, ...rest } = att;
+    if (att.guardian !== info.signPublicKey || !verifyPayload(fromHex(info.signPublicKey), DOMAIN.extended, rest, fromHex(sig)))
+      throw new GuardianError("guardian returned an invalid extension attestation");
+    return att;
   }
 
   async shred(req: ShredRequest): Promise<DestroyedAttestation> {

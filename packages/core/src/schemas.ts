@@ -23,6 +23,8 @@ export const ZkProof = defineSchema("arkivzk.proof.v1", {
   recordKey: str().indexed(),
   circuitId: str().indexed(),
   vkHash: str().indexed(),
+  audience: str().indexed(), // sha256(verifier nonce): a verifier can query "proofs addressed to me"
+  claim: str().indexed(), // e.g. "age>=18" - public statement label, filterable
   statement: bytes(), // JSON: public inputs + human labels
   proof: bytes(),
 });

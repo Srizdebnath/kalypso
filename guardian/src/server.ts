@@ -15,7 +15,7 @@ import {
 import {
   DOMAIN, MAX_SKEW_MS,
   type DestroyedAttestationBody, type FetchShareRequest, type GuardianInfo, type PutShareRequest,
-  type ShredRequest,
+  type ShredRequest, type ExtendRequest,
 } from "@arkivzk/core";
 
 const NAME = process.env.GUARDIAN_NAME ?? "guardian-1";
@@ -159,6 +159,25 @@ const routes: Record<string, (body: any) => unknown> = {
     requireSig(s.controller, DOMAIN.fetch, { recordId: b.recordId, clientKemPk: b.clientKemPk, nonce: b.nonce, ts: b.ts }, b.sig);
     fresh(b.ts, b.nonce);
     return { sealedShare: toHex(hpkeSeal(fromHex(b.clientKemPk), s.share, "share-get:" + b.recordId)) };
+  },
+
+  "POST /shares/extend": (b: ExtendRequest) => {
+    if (!Array.isArray(b.recordIds) || b.recordIds.length === 0 || b.recordIds.length > 256 || !b.recordIds.every(isId) || !Number.isFinite(b.expiresAt))
+      throw new HttpError(400, "bad request");
+    const { sig, ...body } = b;
+    requireSig(b.controller, DOMAIN.extend, body, sig);
+    fresh(b.ts, b.nonce);
+    const results = b.recordIds.map((recordId) => {
+      const s = shares.get(recordId);
+      if (!s) return { recordId, status: "absent" as const, expiresAt: 0 };
+      if (s.controller !== b.controller) throw new HttpError(403, `not controller of ${recordId}`);
+      // leases only grow; shortening happens by shredding
+      s.expiresAt = Math.max(s.expiresAt, b.expiresAt);
+      persist(recordId, s);
+      return { recordId, status: "extended" as const, expiresAt: s.expiresAt };
+    });
+    const att = { guardian: signPk, results, ts: Date.now() };
+    return { ...att, sig: signPayload(signSk, DOMAIN.extended, att) };
   },
 
   "POST /shred": (b: ShredRequest) => {

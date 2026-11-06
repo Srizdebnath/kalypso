@@ -10,6 +10,8 @@ export const DOMAIN = {
   shred: "guardian.shred",
   stored: "guardian.stored",
   destroyed: "guardian.destroyed",
+  extend: "guardian.extend",
+  extended: "guardian.extended",
 } as const;
 
 export const MAX_SKEW_MS = 5 * 60 * 1000;
@@ -67,3 +69,13 @@ export type DestroyedAttestationBody = {
   ts: number;
 };
 export type DestroyedAttestation = DestroyedAttestationBody & { sig: string };
+
+/** Lease renewal: keys must live exactly as long as the data on Arkiv. */
+export type ExtendRequestBody = { recordIds: string[]; controller: string; expiresAt: number; nonce: string; ts: number };
+export type ExtendRequest = ExtendRequestBody & { sig: string };
+export type ExtendedAttestation = {
+  guardian: string;
+  results: { recordId: string; status: "extended" | "absent"; expiresAt: number }[];
+  ts: number;
+  sig: string;
+};
