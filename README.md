@@ -88,3 +88,15 @@ Diagram sources live in [`diagrams/`](diagrams/) (mermaid). Regenerate PNGs with
 
 ### ZK + shredding together
 ![zk and shred](docs/img/zk-and-shred.png)
+
+## Judging files
+
+[arkiv/schema.md](arkiv/schema.md) · [arkiv/why-arkiv.md](arkiv/why-arkiv.md) · [arkiv/how-you-use-arkiv.md](arkiv/how-you-use-arkiv.md) · [arkiv/reach.md](arkiv/reach.md) · [arkiv/friction.md](arkiv/friction.md)
+
+## How we used AI
+
+This project was built with Claude Code (Anthropic) as a pair programmer: architecture brainstorming, code, tests and docs were written with AI assistance and reviewed/run by the team. All cryptographic primitives come from audited libraries (`@noble/*`, Noir/Barretenberg); nothing is home-rolled except Shamir sharing over GF(2⁸), which is unit-tested.
+
+## License
+
+MIT
