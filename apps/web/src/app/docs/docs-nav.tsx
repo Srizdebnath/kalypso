@@ -57,7 +57,7 @@ export function DocsNav({ groups }: { groups: { title: string; items: DocLink[] 
           aria-expanded={open}
           className="glass flex w-full items-center justify-between rounded-2xl px-4 py-3 text-sm text-white"
         >
-          <span className="truncate">{current ? splitTitle(current.label).name : "Documentation"}</span>
+          <span className="min-w-0 truncate">{current ? splitTitle(current.label).name : "Documentation"}</span>
           <span className={`transition-transform ${open ? "rotate-180" : ""}`}>⌄</span>
         </button>
         {open && <div className="glass mt-2 rounded-2xl p-3">{list}</div>}
