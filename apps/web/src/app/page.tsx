@@ -172,46 +172,8 @@ export default function Home() {
       </section>
 
       <div className="mx-auto max-w-6xl px-4">
-        {/* PROBLEM */}
-        <section className="grid items-center gap-12 py-28 md:grid-cols-2">
-          <Reveal>
-            <Eyebrow>The problem</Eyebrow>
-            <h2 className="text-gradient text-4xl leading-tight font-bold tracking-tight md:text-5xl">
-              On a public chain, delete doesn&apos;t erase.
-            </h2>
-            <p className="mt-5 text-lg text-[#c0c0c0]">
-              Arkiv stores attributes, owners and full transaction history in the open. Removing an entity drops it from current
-              state, but every node and archive that synced the old blocks still has the bytes.
-            </p>
-            <p className="mt-4 text-lg text-[#c0c0c0]">
-              arkivzk makes those bytes useless: only ciphertext ever goes on-chain, and the key lives in three shares that can
-              all be destroyed with a signed receipt.
-            </p>
-          </Reveal>
-          <Reveal delay={150}>
-            <div className="nb-card p-0 font-mono text-[0.8rem] leading-relaxed">
-              <div className="flex items-center gap-2 border-b border-white/10 px-4 py-3">
-                <span className="h-2.5 w-2.5 rounded-full bg-[#ff5c7a]" />
-                <span className="h-2.5 w-2.5 rounded-full bg-[#d5d5d5]" />
-                <span className="h-2.5 w-2.5 rounded-full bg-[#cbcbcb]" />
-                <span className="ml-2 text-xs text-[#7a7a7a]">what the archive page shows</span>
-              </div>
-              <div className="space-y-2 p-5">
-                <p><span className="text-[#7a7a7a]">$</span> zk.shred([record])</p>
-                <p className="pl-4 text-[#cbcbcb]">✓ guardian-1 zeroized share · signed</p>
-                <p className="pl-4 text-[#cbcbcb]">✓ guardian-2 zeroized share · signed</p>
-                <p className="pl-4 text-[#cbcbcb]">✓ entity deleted · public receipt written</p>
-                <p className="pt-3"><span className="text-[#7a7a7a]">$</span> archive.replay(record.createTx)</p>
-                <p className="pl-4 text-[#cbcbcb]">→ ciphertext recovered from old calldata</p>
-                <p className="pl-4 text-[#cbcbcb]">→ key shares available · 0 of 3</p>
-                <p className="pl-4 text-[#ff5c7a]">✕ decrypt failed: no key exists anywhere</p>
-              </div>
-            </div>
-          </Reveal>
-        </section>
-
         {/* PILLARS */}
-        <section className="py-10">
+        <section className="pt-32 pb-4">
           <Reveal className="mb-12 text-center">
             <Eyebrow>What it does</Eyebrow>
             <h2 className="text-gradient text-4xl font-bold tracking-tight md:text-5xl">Four primitives, one library</h2>
@@ -247,7 +209,7 @@ export default function Home() {
         </section>
 
         {/* HOW */}
-        <section id="how" className="scroll-mt-28 py-28">
+        <section id="how" className="scroll-mt-28 py-32">
           <Reveal className="mb-14 text-center">
             <Eyebrow>How it works</Eyebrow>
             <h2 className="text-gradient text-4xl font-bold tracking-tight md:text-5xl">From write to provable erasure</h2>
@@ -265,41 +227,6 @@ export default function Home() {
             ))}
           </ol>
 
-          <Reveal className="mt-20">
-            <div className="grid items-center gap-10 md:grid-cols-[1fr_1.2fr]">
-              <div>
-                <h3 className="text-3xl font-bold text-white">Five calls in TypeScript</h3>
-                <p className="mt-3 text-[#c0c0c0]">
-                  The SDK wraps encryption, key custody, proofs, queries and shredding. Your app passes values. Arkiv only ever sees
-                  ciphertext, commitments and HMAC tags.
-                </p>
-                <div className="mt-6 flex flex-wrap gap-3">
-                  <Link href="/docs/06-sdk-reference" className="nb-btn glass text-white">SDK reference</Link>
-                  <Link href="/docs/api" className="nb-btn glass text-white">Client API</Link>
-                </div>
-              </div>
-              <div className="nb-card p-0">
-                <div className="flex items-center justify-between border-b border-white/10 px-4 py-3 font-mono text-xs text-[#7a7a7a]">
-                  <span>app.ts</span>
-                  <span>@arkivzk/sdk</span>
-                </div>
-                <pre className="overflow-x-auto p-5 font-mono text-[0.8rem] leading-relaxed text-[#dcdcdc]">
-                  <code>
-                    <span className="text-[#7a7a7a]">{"// encrypt on device, range-searchable"}</span>{"\n"}
-                    <span className="text-[#b6b6b6]">const</span> {"{ entityKey }"} = <span className="text-[#b6b6b6]">await</span> zk.<span className="text-[#d5d5d5]">put</span>({"{"} schemaId, values: {"{ age: 25 }"}, rangeField: <span className="text-[#cbcbcb]">&quot;age&quot;</span> {"}"}){"\n\n"}
-                    <span className="text-[#7a7a7a]">{"// zero-knowledge claim, published on Arkiv"}</span>{"\n"}
-                    <span className="text-[#b6b6b6]">await</span> zk.<span className="text-[#d5d5d5]">prove</span>(entityKey, {"{ field: "}<span className="text-[#cbcbcb]">&quot;age&quot;</span>{", min: 18 }"}, nonce){"\n\n"}
-                    <span className="text-[#7a7a7a]">{"// anyone, no key needed"}</span>{"\n"}
-                    <span className="text-[#b6b6b6]">await</span> <span className="text-[#d5d5d5]">verifyProofEntity</span>(publicClient, proofKey){"\n\n"}
-                    <span className="text-[#7a7a7a]">{"// Arkiv filters tags, never values"}</span>{"\n"}
-                    <span className="text-[#b6b6b6]">await</span> zk.<span className="text-[#d5d5d5]">searchRange</span>(schemaId, <span className="text-[#cbcbcb]">&quot;age&quot;</span>, 18, 40){"\n\n"}
-                    <span className="text-[#7a7a7a]">{"// gone for everyone, children too"}</span>{"\n"}
-                    <span className="text-[#b6b6b6]">await</span> zk.<span className="text-[#a2a2a2]">shred</span>([entityKey], onStep, {"{ cascade: true }"})
-                  </code>
-                </pre>
-              </div>
-            </div>
-          </Reveal>
         </section>
 
         {/* QUERY */}
@@ -338,27 +265,6 @@ export default function Home() {
             </div>
           </Reveal>
         </section>
-
-        {/* BREAK IT */}
-        <Reveal>
-          <section className="nb-card relative overflow-hidden p-8 md:p-12">
-            <div aria-hidden className="absolute -right-32 -bottom-40 h-96 w-96 rounded-full border border-white/40 shadow-[0_0_60px_8px_rgb(255_255_255/0.12),inset_0_0_50px_rgb(255_255_255/0.08)]" style={{ animation: "pulse-glow 6s ease-in-out infinite" }} />
-            <div className="relative grid gap-8 md:grid-cols-[1.3fr_1fr] md:items-end">
-              <div>
-                <Eyebrow>Try to break it</Eyebrow>
-                <h2 className="text-gradient text-4xl font-bold tracking-tight md:text-5xl">Be the archive node</h2>
-                <p className="mt-4 max-w-xl text-[#b3b3b3]">
-                  Our indexer kept the raw calldata of every arkivzk write. Pick a shredded record and try to decrypt it. The ciphertext is
-                  there. The key isn&apos;t.
-                </p>
-              </div>
-              <div className="flex flex-wrap gap-3 md:justify-end">
-                <Link href="/archive" className="nb-btn bg-ink">Open the archive node →</Link>
-                <Link href={DEMO_PROOF} className="nb-btn glass text-white">Verify a live proof</Link>
-              </div>
-            </div>
-          </section>
-        </Reveal>
 
       </div>
 

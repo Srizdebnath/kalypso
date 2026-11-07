@@ -188,8 +188,8 @@ same-origin or send \`Cross-Origin-Resource-Policy\` / CORS headers.
 
 export default function ApiDocsPage() {
   return (
-    <article className="nb-card min-w-0 p-6 md:p-10">
-      <p className="mb-4 font-mono text-xs font-bold opacity-60">apps/web/src/lib/arkivzk-client.ts</p>
+    <article className="min-w-0 max-w-3xl">
+      <p className="mb-8 text-[0.8rem] text-[#8a8a8a]">Docs / Client API · apps/web/src/lib/arkivzk-client.ts</p>
       <Markdown source={API_MD} />
     </article>
   );

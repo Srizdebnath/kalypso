@@ -26,6 +26,8 @@ export function NavLinks() {
     };
   }, [open]);
 
+  if (pathname.startsWith("/docs")) return <DocsBar pathname={pathname} />;
+
   const isActive = (href: string) => !href.includes("#") && (pathname === href || pathname.startsWith(href + "/"));
   const inApp = pathname.startsWith("/app");
 
@@ -114,6 +116,43 @@ export function NavLinks() {
           ))}
         </nav>
         <p className="font-mono text-xs text-white/40">Arkiv Rabdi · chain 7794095</p>
+      </div>
+    </header>
+  );
+}
+
+/** Flat light bar for the documentation, like a reference site. */
+function DocsBar({ pathname }: { pathname: string }) {
+  const links = [
+    { href: "/docs", label: "Documentation", active: pathname.startsWith("/docs") && !pathname.startsWith("/docs/06") && pathname !== "/docs/api" },
+    { href: "/docs/06-sdk-reference", label: "SDK Reference", active: pathname.startsWith("/docs/06") },
+    { href: "/docs/api", label: "Client API", active: pathname === "/docs/api" },
+  ];
+  return (
+    <header className="sticky top-0 z-50 border-b border-[#ececec] bg-white/90 backdrop-blur">
+      <div className="mx-auto flex h-14 max-w-7xl items-center justify-between gap-4 px-4">
+        <Link href="/" aria-label="arkivzk home" className="flex items-center gap-2">
+          <span className="grid h-6 w-6 place-items-center rounded-full bg-[#0a0a0a]">
+            <span className="h-1.5 w-1.5 rounded-full bg-[#fff]" />
+          </span>
+          <span className="font-display text-[0.8rem] font-bold tracking-[0.24em] text-[#0a0a0a]">ARKIVZK</span>
+          <span className="ml-1 rounded-md border border-[#e5e5e5] px-1.5 py-0.5 text-[0.65rem] font-medium text-[#737373]">docs</span>
+        </Link>
+        <div className="flex items-center gap-1">
+          {links.map((l) => (
+            <Link
+              key={l.href}
+              href={l.href}
+              className={`hidden rounded-md px-3 py-1.5 text-sm transition-colors sm:block ${l.active ? "font-medium text-[#0a0a0a]" : "text-[#525252] hover:text-[#0a0a0a]"}`}
+            >
+              {l.label}
+            </Link>
+          ))}
+          <span className="mx-2 hidden h-5 w-px bg-[#e5e5e5] sm:block" />
+          <Link href="/app" className="rounded-full bg-[#0a0a0a] px-4 py-1.5 text-sm font-medium text-[#fff] transition-opacity hover:opacity-85">
+            Open app
+          </Link>
+        </div>
       </div>
     </header>
   );

@@ -5,44 +5,42 @@ import { usePathname } from "next/navigation";
 import { useState } from "react";
 import { splitTitle, type DocLink } from "@/lib/docs-groups";
 
+const short = (label: string) => splitTitle(label).name.split(":")[0].replace(/\s*\(.*\)$/, "");
+
 export function DocsNav({ groups }: { groups: { title: string; items: DocLink[] }[] }) {
   const pathname = usePathname();
-  // the menu belongs to the page it was opened on, so navigating closes it
   const [openOn, setOpenOn] = useState<string | null>(null);
   const open = openOn === pathname;
   const current = groups.flatMap((g) => g.items).find((i) => i.href === pathname);
 
+  const item = (href: string, label: string) => {
+    const active = pathname === href;
+    return (
+      <li key={href}>
+        <Link
+          href={href}
+          aria-current={active ? "page" : undefined}
+          className={`relative -ml-px flex items-center gap-2 rounded-md py-1.5 pr-2 pl-5 text-[0.86rem] transition-colors ${
+            active ? "bg-[#f4f4f5] font-medium text-[#0a0a0a]" : "text-[#525252] hover:text-[#0a0a0a]"
+          }`}
+        >
+          <span className={`absolute left-[-3px] h-1.5 w-1.5 rounded-full ${active ? "bg-[#0a0a0a]" : "bg-transparent"}`} />
+          {label}
+        </Link>
+      </li>
+    );
+  };
+
   const list = (
     <div className="space-y-6">
-      <Link
-        href="/docs"
-        className={`flex items-center gap-2 rounded-xl px-3 py-2 text-sm transition-colors ${pathname === "/docs" ? "bg-white/10 text-white" : "text-[#c0c0c0] hover:text-white"}`}
-      >
-        <span className="text-[#a3a3a3]">◆</span> Overview
-      </Link>
+      <div>
+        <p className="mb-1.5 text-[0.8rem] font-medium text-[#8a8a8a]">Overview</p>
+        <ul className="ml-1 border-l border-[#e5e5e5]">{item("/docs", "Introduction")}</ul>
+      </div>
       {groups.map((g) => (
         <div key={g.title}>
-          <p className="mb-2 px-3 text-[0.68rem] font-semibold tracking-[0.18em] text-[#7a7a7a] uppercase">{g.title}</p>
-          <ul className="space-y-0.5 border-l border-white/10">
-            {g.items.map((i) => {
-              const active = pathname === i.href;
-              const { num, name } = splitTitle(i.label);
-              return (
-                <li key={i.href}>
-                  <Link
-                    href={i.href}
-                    aria-current={active ? "page" : undefined}
-                    className={`-ml-px flex gap-2 border-l py-1.5 pr-2 pl-3 text-sm leading-snug transition-colors ${
-                      active ? "border-[#a3a3a3] text-white" : "border-transparent text-[#a3a3a3] hover:border-white/30 hover:text-white"
-                    }`}
-                  >
-                    {num && <span className="font-mono text-xs text-[#7a7a7a] pt-0.5">{num}</span>}
-                    <span>{name.split(":")[0]}</span>
-                  </Link>
-                </li>
-              );
-            })}
-          </ul>
+          <p className="mb-1.5 text-[0.8rem] font-medium text-[#8a8a8a]">{g.title}</p>
+          <ul className="ml-1 space-y-0.5 border-l border-[#e5e5e5]">{g.items.map((i) => item(i.href, short(i.label)))}</ul>
         </div>
       ))}
     </div>
@@ -55,12 +53,12 @@ export function DocsNav({ groups }: { groups: { title: string; items: DocLink[] 
           type="button"
           onClick={() => setOpenOn(open ? null : pathname)}
           aria-expanded={open}
-          className="glass flex w-full items-center justify-between rounded-2xl px-4 py-3 text-sm text-white"
+          className="flex w-full items-center justify-between rounded-lg border border-[#e5e5e5] px-3 py-2.5 text-sm text-[#171717]"
         >
-          <span className="min-w-0 truncate">{current ? splitTitle(current.label).name : "Documentation"}</span>
-          <span className={`transition-transform ${open ? "rotate-180" : ""}`}>⌄</span>
+          <span className="min-w-0 truncate">{current ? short(current.label) : "Introduction"}</span>
+          <span className={`text-[#737373] transition-transform ${open ? "rotate-180" : ""}`}>⌄</span>
         </button>
-        {open && <div className="glass mt-2 rounded-2xl p-3">{list}</div>}
+        {open && <div className="mt-2 rounded-lg border border-[#e5e5e5] p-4">{list}</div>}
       </div>
       <div className="hidden lg:block">{list}</div>
     </nav>

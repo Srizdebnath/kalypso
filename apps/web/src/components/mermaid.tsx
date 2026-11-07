@@ -13,43 +13,43 @@ async function loadMermaid() {
       theme: "base",
       fontFamily: "var(--font-space-grotesk), ui-sans-serif, system-ui, sans-serif",
       themeVariables: {
-        background: "#101010",
-        primaryColor: "#262626",
-        primaryTextColor: "#ededed",
-        primaryBorderColor: "#8b8b8b",
-        secondaryColor: "#272727",
-        secondaryBorderColor: "#9d9d9d",
-        tertiaryColor: "#161616",
-        tertiaryBorderColor: "#4b4b4b",
-        lineColor: "#a3a3a3",
-        textColor: "#ededed",
-        mainBkg: "#262626",
-        nodeBorder: "#a3a3a3",
-        clusterBkg: "#161616",
-        clusterBorder: "#a3a3a3",
-        edgeLabelBackground: "#101010",
-        actorBkg: "#272727",
-        actorBorder: "#a3a3a3",
-        actorTextColor: "#ededed",
-        actorLineColor: "#a3a3a3",
-        signalColor: "#a3a3a3",
-        signalTextColor: "#ededed",
-        labelBoxBkgColor: "#252525",
-        labelBoxBorderColor: "#a3a3a3",
-        labelTextColor: "#ededed",
-        loopTextColor: "#ededed",
-        noteBkgColor: "#252525",
-        noteBorderColor: "#a3a3a3",
-        noteTextColor: "#ededed",
-        activationBkgColor: "#252525",
-        activationBorderColor: "#a3a3a3",
+        background: "#ffffff",
+        primaryColor: "#f5f5f5",
+        primaryTextColor: "#111111",
+        primaryBorderColor: "#a3a3a3",
+        secondaryColor: "#fafafa",
+        secondaryBorderColor: "#a3a3a3",
+        tertiaryColor: "#fafafa",
+        tertiaryBorderColor: "#d4d4d4",
+        lineColor: "#737373",
+        textColor: "#111111",
+        mainBkg: "#f5f5f5",
+        nodeBorder: "#737373",
+        clusterBkg: "#fafafa",
+        clusterBorder: "#737373",
+        edgeLabelBackground: "#ffffff",
+        actorBkg: "#fafafa",
+        actorBorder: "#737373",
+        actorTextColor: "#111111",
+        actorLineColor: "#737373",
+        signalColor: "#737373",
+        signalTextColor: "#111111",
+        labelBoxBkgColor: "#f5f5f5",
+        labelBoxBorderColor: "#737373",
+        labelTextColor: "#111111",
+        loopTextColor: "#111111",
+        noteBkgColor: "#f5f5f5",
+        noteBorderColor: "#737373",
+        noteTextColor: "#111111",
+        activationBkgColor: "#f5f5f5",
+        activationBorderColor: "#737373",
         sequenceNumberColor: "#ffffff",
         fontSize: "15px",
       },
       themeCSS: `
         .node rect, .node polygon, .node circle, .cluster rect, .actor, rect.note,
-        .stateGroup rect, .statediagram-state rect { stroke-width: 2.5px !important; }
-        .edgePath .path, .flowchart-link, .messageLine0, .messageLine1 { stroke-width: 2px !important; }
+        .stateGroup rect, .statediagram-state rect { stroke-width: 1.25px !important; }
+        .edgePath .path, .flowchart-link, .messageLine0, .messageLine1 { stroke-width: 1.25px !important; }
       `,
       flowchart: { curve: "linear", htmlLabels: true },
       sequence: { mirrorActors: false },
@@ -85,8 +85,8 @@ export function Mermaid({ code }: { code: string }) {
   }, [code, id]);
 
   return (
-    <figure className="nb-card mb-6 overflow-hidden p-0">
-      <div className="flex items-center justify-between border-b-[3px] border-ink bg-cyan px-3 py-1.5">
+    <figure className="mb-6 overflow-hidden rounded-xl border border-[#e5e5e5] bg-white">
+      <div className="flex items-center justify-between border-b border-[#e5e5e5] bg-[#fafafa] px-3 py-1.5 text-[#525252]">
         <span className="font-mono text-xs font-bold uppercase">diagram</span>
         <button
           type="button"
@@ -96,7 +96,7 @@ export function Mermaid({ code }: { code: string }) {
           {showSource ? "hide source" : "source"}
         </button>
       </div>
-      <div className="mermaid-box overflow-x-auto bg-white p-4">
+      <div className="mermaid-box overflow-x-auto bg-[#fff] p-4">
         {error ? (
           <p className="font-mono text-sm text-danger">Could not render diagram: {error}</p>
         ) : svg ? (
@@ -106,7 +106,7 @@ export function Mermaid({ code }: { code: string }) {
         )}
       </div>
       {(showSource || error) && (
-        <pre className="m-0 overflow-x-auto border-t-[3px] border-ink bg-ink p-4 font-mono text-xs text-paper">
+        <pre className="m-0 overflow-x-auto border-t border-[#e5e5e5] bg-[#fafafa] p-4 font-mono text-xs text-[#262626]">
           {code}
         </pre>
       )}

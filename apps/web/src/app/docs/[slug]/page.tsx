@@ -31,47 +31,47 @@ export default async function DocPage({ params }: PageProps<"/docs/[slug]">) {
 
   const words = doc.content.split(/\s+/).length;
   const minutes = Math.max(1, Math.round(words / 220));
-  const { num, name } = splitTitle(doc.title);
+  const { name } = splitTitle(doc.title);
 
   return (
-    <div className="grid gap-10 xl:grid-cols-[minmax(0,1fr)_13rem]">
-      <div className="min-w-0">
-        <div className="mb-6 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-[#999999]">
-          <Link href="/docs" className="hover:text-white">Docs</Link>
-          <span className="text-[#5b5b5b]">/</span>
-          <span className="text-white">{num ? `${num} · ` : ""}{name.split(":")[0]}</span>
-          <span className="ml-auto font-mono text-xs">{minutes} min read · {doc.file}</span>
+    <div className="grid gap-12 xl:grid-cols-[minmax(0,1fr)_12rem]">
+      <div className="min-w-0 max-w-3xl">
+        <div className="mb-8 flex flex-wrap items-center gap-x-2 gap-y-1 text-[0.8rem] text-[#8a8a8a]">
+          <Link href="/docs" className="hover:text-[#0a0a0a]">Docs</Link>
+          <span>/</span>
+          <span className="text-[#404040]">{name.split(":")[0]}</span>
+          <span className="ml-auto">{minutes} min read</span>
         </div>
         {doc.headings.length > 3 && (
-          <details className="glass mb-6 rounded-2xl p-4 xl:hidden">
-            <summary className="cursor-pointer text-sm font-medium text-white">On this page</summary>
+          <details className="mb-8 rounded-lg border border-[#e5e5e5] p-3 xl:hidden">
+            <summary className="cursor-pointer text-sm text-[#171717]">On this page</summary>
             <div className="mt-3">
               <Toc headings={doc.headings} />
             </div>
           </details>
         )}
-        <article className="nb-card min-w-0 p-6 md:p-12">
+        <article>
           <Markdown source={doc.content} />
         </article>
-        <nav className="mt-6 grid gap-4 sm:grid-cols-2">
+        <nav className="mt-14 grid gap-3 border-t border-[#ededed] pt-8 sm:grid-cols-2">
           {prev ? (
-            <Link href={`/docs/${prev.slug}`} className="nb-card lift block p-5">
-              <span className="text-xs text-[#7a7a7a]">← Previous</span>
-              <span className="mt-1 block font-medium text-white">{prev.title}</span>
+            <Link href={`/docs/${prev.slug}`} className="rounded-lg border border-[#e5e5e5] p-4 transition-colors hover:border-[#0a0a0a]">
+              <span className="text-xs text-[#8a8a8a]">Previous</span>
+              <span className="mt-1 block text-sm font-medium text-[#0a0a0a]">← {prev.title}</span>
             </Link>
           ) : (
             <span />
           )}
-          <Link href={next ? `/docs/${next.slug}` : "/docs/api"} className="nb-card lift block p-5 text-right">
-            <span className="text-xs text-[#7a7a7a]">Next →</span>
-            <span className="mt-1 block font-medium text-white">{next ? next.title : "API · arkivzk-client"}</span>
+          <Link href={next ? `/docs/${next.slug}` : "/docs/api"} className="rounded-lg border border-[#e5e5e5] p-4 text-right transition-colors hover:border-[#0a0a0a]">
+            <span className="text-xs text-[#8a8a8a]">Next</span>
+            <span className="mt-1 block text-sm font-medium text-[#0a0a0a]">{next ? next.title : "API · arkivzk-client"} →</span>
           </Link>
         </nav>
       </div>
       {doc.headings.length > 0 && (
         <aside className="hidden xl:block">
           <div className="sticky top-24 max-h-[calc(100vh-8rem)] overflow-y-auto">
-            <p className="mb-3 text-[0.68rem] font-semibold tracking-[0.18em] text-[#7a7a7a] uppercase">On this page</p>
+            <p className="mb-3 text-[0.8rem] font-medium text-[#8a8a8a]">On this page</p>
             <Toc headings={doc.headings} />
           </div>
         </aside>
