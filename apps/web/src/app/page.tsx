@@ -1,9 +1,9 @@
 import Link from "next/link";
-import { CountUp, Reveal } from "@/components/motion";
+import { Reveal } from "@/components/motion";
+import { DEMO_PROOF } from "@/lib/live";
 
 const WORD = "ARKIVZK".split("");
 
-const TECH = ["AES-256-GCM", "Noir · UltraHonk", "Poseidon2", "ML-KEM-768 + X25519", "Shamir 2-of-3", "HMAC blind indexes", "Swarm", "Arkiv DB-chain", "Ed25519 receipts"];
 
 const PILLARS = [
   {
@@ -68,12 +68,6 @@ const FLOW = [
   { t: "Break it", d: "An archive node replays old calldata. Decryption fails." },
 ];
 
-const STATS = [
-  { to: 6.1, decimals: 1, suffix: "×", label: "faster range search on encrypted data", note: "3,034 → 497 ms, live" },
-  { to: 1, prefix: "5→", label: "queries for a JOIN, down to one", note: "1,826 → 389 ms" },
-  { to: 1, suffix: " tx", label: "to shred a parent and all its children", note: "atomic, with receipt" },
-  { to: 14.6, decimals: 1, suffix: " KB", label: "per zero-knowledge proof", note: "prove ≈0.4 s, verify 15 ms" },
-];
 
 const QUERY_GAINS = [
   ["Range on an encrypted field", "Download + decrypt all · 3,034 ms", "1 query · 497 ms"],
@@ -84,21 +78,7 @@ const QUERY_GAINS = [
   ["Proofs of 45 records", "45 queries", "3 queries"],
 ];
 
-const EXPLORER = "https://rabdi.explorer.arkiv.network";
-const LIVE = [
-  ["Wallet used for the live runs", "address", "0xBc670380edc8Ac07E91ca68cD6ac2Adf27881162"],
-  ["A guardian-signed shred receipt", "entity", "0x5257a663ad161985d8a85a10529de28a7982a97ee568bba65d0e73ba069b41fc"],
-  ["A month-level shred receipt", "entity", "0xf309ad37f75fdf7c2996ee0d360c2c25af5c14abcf3b7ca65d7bde8dba15dfbf"],
-];
 
-const LIMITS = [
-  ["Anyone who decrypted before the shred keeps what they saw.", "Shredding stops future decryption. It can't take back plaintext, screenshots or copies made while the key existed."],
-  ["Guardians are trusted to really delete.", "Two-of-three means one lying guardian alone isn't enough, but two colluding guardians could keep a key. TEE attestation is future work."],
-  ["Search indexes leak patterns, by design.", "Opt-in per field. Equality tags show which of your records share a value in the same month; range tags show approximate order; foreign keys show siblings."],
-  ["Published metadata stays in history.", "Timestamps, schema id, owner address and the padded size bucket are public on Arkiv and remain in old blocks."],
-  ["Old proofs stay mathematically valid.", "A proof was true when it was made. Verifiers must check shred status (this app does) and treat shredded records as revoked."],
-  ["Malware on your device is out of scope.", "Encryption happens on your device, so whoever controls it sees the plaintext. The code is not audited."],
-];
 
 function Eyebrow({ children }: { children: React.ReactNode }) {
   return (
@@ -150,7 +130,7 @@ function Ring({ className = "" }: { className?: string }) {
 
 export default function Home() {
   return (
-    <div className="-mt-14 overflow-x-clip">
+    <div className="-mt-[70px] overflow-x-clip sm:-mt-[78px]">
       {/* HERO */}
       <section className="relative flex min-h-[100svh] flex-col items-center justify-end overflow-hidden pb-16 sm:pb-20">
         <div className="absolute inset-0 bg-[radial-gradient(90%_70%_at_50%_0%,#1c1c1c_0%,#0a0a0a_45%,#000000_100%)]" />
@@ -177,8 +157,8 @@ export default function Home() {
             <Link href="/app" className="nb-btn bg-ink px-8 py-3.5 text-base">
               Open the app
             </Link>
-            <Link href="/docs/00-getting-started" className="nb-btn glass px-8 py-3.5 text-base text-white">
-              Get started →
+            <Link href={DEMO_PROOF} className="nb-btn glass px-8 py-3.5 text-base text-white">
+              Verify a live proof →
             </Link>
           </div>
           <p className="mt-5 flex items-center gap-2 text-sm text-[#a3a3a3]" style={{ animation: "fade-up 1s 1.35s both" }}>
@@ -188,20 +168,6 @@ export default function Home() {
             </span>
             Live on Arkiv Rabdi · chain 7794095
           </p>
-        </div>
-      </section>
-
-      {/* TECH MARQUEE */}
-      <section aria-label="Built with" className="relative border-y border-white/10 bg-white/[0.02] py-5">
-        <div className="overflow-hidden [mask-image:linear-gradient(90deg,transparent,#000_10%,#000_90%,transparent)]">
-          <div className="flex w-max gap-12 whitespace-nowrap" style={{ animation: "marquee 38s linear infinite" }}>
-            {[...TECH, ...TECH].map((t, i) => (
-              <span key={i} className="flex items-center gap-12 font-mono text-sm tracking-wider text-[#999999]">
-                {t}
-                <span className="text-[#5b5b5b]">✦</span>
-              </span>
-            ))}
-          </div>
         </div>
       </section>
 
@@ -336,25 +302,8 @@ export default function Home() {
           </Reveal>
         </section>
 
-        {/* STATS */}
-        <section className="py-10">
-          <div className="grid gap-px overflow-hidden rounded-3xl border border-white/10 bg-white/10 sm:grid-cols-2 lg:grid-cols-4">
-            {STATS.map((s, i) => (
-              <Reveal key={s.label} delay={i * 100} className="h-full">
-                <div className="h-full bg-[#0c0c0c] p-7">
-                  <p className="text-gradient font-display text-4xl font-bold">
-                    <CountUp to={s.to} decimals={s.decimals ?? 0} prefix={s.prefix} suffix={s.suffix} />
-                  </p>
-                  <p className="mt-3 text-sm text-white">{s.label}</p>
-                  <p className="mt-1 font-mono text-xs text-[#7a7a7a]">{s.note}</p>
-                </div>
-              </Reveal>
-            ))}
-          </div>
-        </section>
-
         {/* QUERY */}
-        <section className="py-28">
+        <section className="pt-10 pb-28">
           <Reveal className="mb-10 flex flex-wrap items-end justify-between gap-6">
             <div className="max-w-2xl">
               <Eyebrow>Encrypted queries</Eyebrow>
@@ -390,88 +339,29 @@ export default function Home() {
           </Reveal>
         </section>
 
-        {/* BREAK IT + LIVE */}
-        <section className="grid gap-5 lg:grid-cols-2">
-          <Reveal className="h-full">
-            <div className="nb-card h-full p-8">
-              <div aria-hidden className="absolute -right-24 -bottom-24 h-72 w-72 rounded-full border border-white/20 shadow-[0_0_60px_10px_rgb(111_111_111/0.35),inset_0_0_40px_rgb(111_111_111/0.4)]" />
-              <div className="relative">
+        {/* BREAK IT */}
+        <Reveal>
+          <section className="nb-card relative overflow-hidden p-8 md:p-12">
+            <div aria-hidden className="absolute -right-32 -bottom-40 h-96 w-96 rounded-full border border-white/40 shadow-[0_0_60px_8px_rgb(255_255_255/0.12),inset_0_0_50px_rgb(255_255_255/0.08)]" style={{ animation: "pulse-glow 6s ease-in-out infinite" }} />
+            <div className="relative grid gap-8 md:grid-cols-[1.3fr_1fr] md:items-end">
+              <div>
                 <Eyebrow>Try to break it</Eyebrow>
-                <h2 className="text-3xl font-bold text-white">Run the archive node attack</h2>
-                <p className="mt-3 max-w-md text-[#c0c0c0]">
-                  Our indexer captured raw calldata for every arkivzk write. Pick a shredded record and watch it fail to decrypt:
-                  the ciphertext is there, the key isn&apos;t.
+                <h2 className="text-gradient text-4xl font-bold tracking-tight md:text-5xl">Be the archive node</h2>
+                <p className="mt-4 max-w-xl text-[#b3b3b3]">
+                  Our indexer kept the raw calldata of every arkivzk write. Pick a shredded record and try to decrypt it. The ciphertext is
+                  there. The key isn&apos;t.
                 </p>
-                <Link href="/archive" className="nb-btn bg-ink mt-8">Open the archive node →</Link>
+              </div>
+              <div className="flex flex-wrap gap-3 md:justify-end">
+                <Link href="/archive" className="nb-btn bg-ink">Open the archive node →</Link>
+                <Link href={DEMO_PROOF} className="nb-btn glass text-white">Verify a live proof</Link>
               </div>
             </div>
-          </Reveal>
-          <Reveal delay={120} className="h-full">
-            <div className="nb-card h-full p-8">
-              <Eyebrow>Live on Rabdi</Eyebrow>
-              <h2 className="text-3xl font-bold text-white">Check the chain yourself</h2>
-              <ul className="mt-6 space-y-3">
-                {LIVE.map(([label, kind, value]) => (
-                  <li key={value}>
-                    <a
-                      href={`${EXPLORER}/${kind}/${value}`}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="group block rounded-2xl border border-white/10 bg-white/[0.03] p-4 transition-colors hover:border-[#a3a3a3]/60"
-                    >
-                      <span className="flex items-center justify-between text-sm text-white">
-                        {label}
-                        <span className="text-[#7a7a7a] transition-transform group-hover:translate-x-1">↗</span>
-                      </span>
-                      <span className="mt-1 block truncate font-mono text-xs text-[#999999]">{value}</span>
-                    </a>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          </Reveal>
-        </section>
+          </section>
+        </Reveal>
 
-        {/* LIMITS */}
-        <section id="limits" className="py-28">
-          <Reveal className="mb-10 max-w-2xl">
-            <Eyebrow>Limits</Eyebrow>
-            <h2 className="text-gradient text-4xl font-bold tracking-tight md:text-5xl">What it doesn&apos;t protect against</h2>
-            <p className="mt-4 text-[#c0c0c0]">
-              A hackathon build, research-grade and not audited. Full threat model in{" "}
-              <Link href="/docs/01-idea" className="text-white underline decoration-white/30 underline-offset-4 hover:decoration-white">01 · Idea</Link>{" "}
-              and{" "}
-              <Link href="/docs/08-design-faq" className="text-white underline decoration-white/30 underline-offset-4 hover:decoration-white">08 · Design FAQ</Link>.
-            </p>
-          </Reveal>
-          <div className="grid gap-3 md:grid-cols-2">
-            {LIMITS.map(([t, d], i) => (
-              <Reveal key={t} delay={(i % 2) * 80}>
-                <details className="group nb-border bg-white/[0.02] p-5 transition-colors open:border-[#a3a3a3]/40 open:bg-white/[0.04]">
-                  <summary className="flex cursor-pointer list-none items-center justify-between gap-4 font-medium text-white">
-                    {t}
-                    <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full border border-white/15 text-[#b9b9b9] transition-transform group-open:rotate-45">+</span>
-                  </summary>
-                  <p className="mt-3 text-sm text-[#a3a3a3]">{d}</p>
-                </details>
-              </Reveal>
-            ))}
-          </div>
-        </section>
       </div>
 
-      {/* FINAL CTA */}
-      <section className="relative overflow-hidden py-32">
-        <Ring className="top-1/2 w-[640px] max-w-[140vw] -translate-y-1/2 opacity-70" />
-        <Reveal className="relative z-10 mx-auto max-w-2xl px-4 text-center">
-          <h2 className="text-gradient text-4xl font-bold tracking-tight md:text-6xl">Running in ten minutes</h2>
-          <p className="mt-5 text-lg text-[#cbcbcb]">Clone, set one access key, start two guardians and the app. Everything runs against the real testnet.</p>
-          <div className="mt-8 flex flex-wrap justify-center gap-3">
-            <Link href="/docs/00-getting-started" className="nb-btn bg-ink px-8 py-3.5 text-base">Getting started</Link>
-            <Link href="/app" className="nb-btn glass px-8 py-3.5 text-base text-white">Open the app</Link>
-          </div>
-        </Reveal>
-      </section>
     </div>
   );
 }

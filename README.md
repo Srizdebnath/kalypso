@@ -42,6 +42,7 @@ or archive indexer that synced the old blocks still holds the bytes forever.
 
 | | |
 |---|---|
+| Live proof (age ≥ 18, record kept 180 days) | `/verify/0x814eb35926ead5e8ad0ea97ec7ce04ac4d26d1b7e446096ffdc316da3fa486db` (record `0xb6a5f66cf44700e6a1d5ec018732a32055d48cdeb74a9d6d4f65f07e8700f839`) |
 | Wallet used for the live run | `0xBc670380edc8Ac07E91ca68cD6ac2Adf27881162` |
 | Relayer pool (ephemeral mode) | `0x63aa5184a1C53b64eDE7F5DDF1f2C6D256f3b1C8` |
 | One-time signer that owned an ephemeral record | `0x8aaCdA6D1875cA954A8FE9767FE62f233D8064A7` |

@@ -531,7 +531,7 @@ function EpochPanel({
                 <span className="text-sm">
                   {e.records} record{e.records === 1 ? "" : "s"} · {e.schemas.join(", ")}
                 </span>
-                {!e.live && <Badge tone="ink">✕ shredded</Badge>}
+                {!e.live && <StatusBadge status="shredded" />}
               </label>
             </li>
           ))}

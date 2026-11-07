@@ -1,5 +1,6 @@
 "use client";
 
+import { StatusBadge } from "@/components/status-badge";
 import { Fragment, useState } from "react";
 import { listArchive, tryDecryptArchived, type ArchiveItem, type DecryptAttempt } from "@/lib/arkivzk-client";
 import { errorMessage, formatBytes, formatDate, shortHex } from "@/lib/format";
@@ -37,7 +38,7 @@ export function ArchiveView() {
       {loading && !data && <Loading label="Loading archive snapshots" />}
       {error && <ErrorBox title="Could not load the archive" error={error} onRetry={reload} />}
       {data && data.length === 0 && (
-        <div className="nb-border border-dashed bg-white p-6 text-center">
+        <div className="nb-border border-dashed bg-[#fff] p-6 text-center">
           <p className="font-bold">The archive is empty.</p>
           <p className="text-sm">Snapshots appear here once arkivzk transactions land on Arkiv.</p>
         </div>
@@ -63,7 +64,7 @@ export function ArchiveView() {
                 const isOpen = open === it.txHash && st;
                 return (
                   <Fragment key={it.txHash}>
-                    <tr className="border-t-[3px] border-ink bg-white align-top">
+                    <tr className="border-t-[3px] border-ink bg-[#fff] align-top">
                       <td className="p-3 font-mono">
                         <span className="flex items-center gap-2">
                           {shortHex(it.txHash, 10, 6)} <CopyButton value={it.txHash} />
@@ -80,7 +81,7 @@ export function ArchiveView() {
                         ))}
                       </td>
                       <td className="p-3">
-                        {it.recordShredded ? <Badge tone="ink">✕ shredded</Badge> : <Badge tone="lime">● keys exist</Badge>}
+                        {it.recordShredded ? <StatusBadge status="shredded" /> : <span className="inline-flex items-center gap-1.5 rounded-full bg-[#fff] px-2.5 py-0.5 text-[0.68rem] font-semibold tracking-wider text-black uppercase"><span className="h-1.5 w-1.5 rounded-full bg-black" /> keys exist</span>}
                       </td>
                       <td className="p-3 text-right">
                         <Button
@@ -94,7 +95,7 @@ export function ArchiveView() {
                       </td>
                     </tr>
                     {isOpen && (
-                      <tr className="bg-white">
+                      <tr className="bg-[#fff]">
                         <td colSpan={7} className="p-3 pt-0">
                           <AttemptPanel state={st} onClose={() => setOpen(null)} />
                         </td>
