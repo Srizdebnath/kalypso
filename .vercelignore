@@ -1,0 +1,20 @@
+# never upload secrets or local state
+.env
+.env.*
+**/.env
+**/.env.*
+*.local
+*.pem
+archive-data
+guardian-data
+**/archive-data
+**/guardian-data
+# build output and deps (Vercel rebuilds)
+node_modules
+**/node_modules
+**/dist
+**/.next
+**/tsconfig.tsbuildinfo
+target
+demo
+.git
