@@ -7,3 +7,7 @@ target/
 *.local
 archive-data/
 guardian-data/
+
+demo/clips/
+demo/*.mp4
+demo/.build/

@@ -38,7 +38,7 @@ export function ArchiveView() {
       {loading && !data && <Loading label="Loading archive snapshots" />}
       {error && <ErrorBox title="Could not load the archive" error={error} onRetry={reload} />}
       {data && data.length === 0 && (
-        <div className="nb-border border-dashed bg-[#fff] p-6 text-center">
+        <div className="nb-border border-dashed bg-white/[0.03] p-6 text-center">
           <p className="font-bold">The archive is empty.</p>
           <p className="text-sm">Snapshots appear here once Kalypso transactions land on Arkiv.</p>
         </div>
@@ -64,7 +64,7 @@ export function ArchiveView() {
                 const isOpen = open === it.txHash && st;
                 return (
                   <Fragment key={it.txHash}>
-                    <tr className="border-t-[3px] border-ink bg-[#fff] align-top">
+                    <tr className="border-t border-white/10 align-top">
                       <td className="p-3 font-mono">
                         <span className="flex items-center gap-2">
                           {shortHex(it.txHash, 10, 6)} <CopyButton value={it.txHash} />
@@ -95,7 +95,7 @@ export function ArchiveView() {
                       </td>
                     </tr>
                     {isOpen && (
-                      <tr className="bg-[#fff]">
+                      <tr className="bg-white/[0.02]">
                         <td colSpan={7} className="p-3 pt-0">
                           <AttemptPanel state={st} onClose={() => setOpen(null)} />
                         </td>
@@ -114,7 +114,7 @@ export function ArchiveView() {
 
 function AttemptPanel({ state, onClose }: { state: AttemptState; onClose: () => void }) {
   return (
-    <div className="border-[3px] border-ink">
+    <div className="overflow-hidden rounded-2xl border border-white/15">
       <div className="flex items-center justify-between border-b-[3px] border-ink bg-paper px-3 py-2">
         <span className="font-mono text-xs font-bold uppercase">decrypt attempt</span>
         <div className="flex items-center gap-3">
@@ -141,10 +141,10 @@ function AttemptPanel({ state, onClose }: { state: AttemptState; onClose: () => 
       )}
       {state.result && (
         <>
-          <pre className="max-h-80 overflow-auto bg-ink p-3 font-mono text-xs leading-relaxed text-lime">
+          <pre className="max-h-80 overflow-auto bg-[#0a0a0a] p-3 font-mono text-xs leading-relaxed text-[#d4d4d4]">
             {state.result.log.map((l, i) => (
               <div key={i}>
-                <span className="text-paper/50">$ </span>
+                <span className="text-white/40">$ </span>
                 {l}
               </div>
             ))}
