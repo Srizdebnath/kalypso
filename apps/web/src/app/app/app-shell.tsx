@@ -31,7 +31,7 @@ function ShellHeader() {
   const { address } = useWallet();
   return (
     <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
-      <nav className="flex flex-wrap gap-0" aria-label="App sections">
+      <nav className="glass flex flex-wrap gap-1 rounded-full p-1.5" aria-label="App sections">
         {TABS.map((t) => {
           const active = pathname === t.href;
           return (
@@ -40,8 +40,10 @@ function ShellHeader() {
               href={t.href}
               aria-current={active ? "page" : undefined}
               className={cx(
-                "-ml-[3px] border-[3px] border-ink px-5 py-2.5 text-lg font-bold first:ml-0",
-                active ? `${t.tone} relative z-10 -translate-y-1 shadow-brutal` : "bg-white hover:bg-paper",
+                "rounded-full px-5 py-2 text-sm font-semibold transition-all duration-300",
+                active
+                  ? "bg-gradient-to-b from-white to-[#e5e5e5] text-[#0b0b0b] shadow-[0_0_24px_-4px_rgb(147_147_147/0.8)]"
+                  : "text-[#c0c0c0] hover:bg-white/5 hover:text-white",
               )}
             >
               {t.label}
@@ -49,8 +51,8 @@ function ShellHeader() {
           );
         })}
       </nav>
-      <div className="nb-border flex items-center gap-2 bg-white px-3 py-2 font-mono text-sm">
-        <span className={cx("h-3 w-3 border-2 border-ink", address ? "bg-lime" : "bg-danger")} />
+      <div className="glass flex items-center gap-2 rounded-full px-4 py-2 font-mono text-sm">
+        <span className={cx("h-2 w-2 rounded-full", address ? "bg-[#cbcbcb] shadow-[0_0_8px_#cbcbcb]" : "bg-[#ff5c7a]")} />
         {address ? shortHex(address, 6, 4) : "no wallet"}
       </div>
     </div>
@@ -87,23 +89,23 @@ function Gate({ children }: { children: ReactNode }) {
         <h2 className="text-xl font-bold">What you can do here</h2>
         <ul className="mt-3 space-y-3 text-sm">
           <li>
-            <strong className="bg-cyan px-1">Vault</strong> store an encrypted record (and an
+            <strong className="text-[#b6b6b6]">Vault</strong> store an encrypted record (and an
             optional file on Swarm), list and decrypt your records.
           </li>
           <li>
-            <strong className="bg-pink px-1">Prove</strong> prove a claim about a field and share a
+            <strong className="text-[#a2a2a2]">Prove</strong> prove a claim about a field and share a
             link anyone can verify.
           </li>
           <li>
-            <strong className="bg-lime px-1">Shred</strong> destroy the keys and get a signed
+            <strong className="text-[#cbcbcb]">Shred</strong> destroy the keys and get a signed
             receipt.
           </li>
           <li>
-            <strong className="bg-violet px-1">Query</strong> see the plan and queries Arkiv runs
+            <strong className="text-[#9d9d9d]">Query</strong> see the plan and queries Arkiv runs
             for your data.
           </li>
           <li>
-            <strong className="bg-yellow px-1">Settings</strong> choose who signs new records, and
+            <strong className="text-[#d5d5d5]">Settings</strong> choose who signs new records, and
             export or restore a recovery kit.
           </li>
         </ul>

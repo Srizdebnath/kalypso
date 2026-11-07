@@ -44,7 +44,7 @@ export function Badge({ tone = "white", children }: { tone?: Tone; children: Rea
   return (
     <span
       className={cx(
-        "inline-flex items-center gap-1 border-2 border-ink px-2 py-0.5 text-xs font-bold uppercase tracking-wide",
+        "inline-flex items-center gap-1 rounded-full border border-white/15 px-2.5 py-0.5 text-[0.68rem] font-semibold uppercase tracking-wider",
         toneBg[tone],
       )}
     >
@@ -58,7 +58,7 @@ export function Spinner({ className }: { className?: string }) {
     <span
       aria-hidden
       className={cx(
-        "inline-block h-4 w-4 animate-spin border-[3px] border-ink border-t-transparent",
+        "inline-block h-4 w-4 animate-spin rounded-full border-2 border-[#a3a3a3] border-t-transparent",
         className,
       )}
     />
@@ -83,11 +83,11 @@ export function ErrorBox({
   onRetry?: () => void;
 }) {
   return (
-    <div role="alert" className="nb-card bg-[#ffe1e1] p-4">
+    <div role="alert" className="nb-card bg-[#eaeaea] p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="flex items-center gap-2 font-bold">
-            <span className="grid h-6 w-6 place-items-center border-2 border-ink bg-danger font-mono text-sm">
+            <span className="grid h-6 w-6 place-items-center rounded-full bg-danger font-mono text-sm">
               !
             </span>
             {title}
@@ -149,12 +149,13 @@ export function PageHeader({
   return (
     <div className="mb-8">
       {kicker && (
-        <span className={cx("nb-border mb-3 inline-block px-2 py-0.5 font-mono text-xs font-bold uppercase", toneBg[tone])}>
+        <span className={cx("mb-4 inline-flex items-center gap-2 rounded-full border border-white/15 px-3 py-1 font-mono text-[0.7rem] font-semibold tracking-[0.18em] uppercase", toneBg[tone])}>
+          <span className="h-1.5 w-1.5 rounded-full bg-current shadow-[0_0_8px_currentColor]" />
           {kicker}
         </span>
       )}
-      <h1 className="text-4xl font-bold leading-tight tracking-tight md:text-5xl">{title}</h1>
-      {children && <div className="mt-3 max-w-3xl text-lg">{children}</div>}
+      <h1 className="text-gradient text-4xl font-bold leading-tight tracking-tight md:text-5xl">{title}</h1>
+      {children && <div className="mt-3 max-w-3xl text-lg text-[#c0c0c0]">{children}</div>}
     </div>
   );
 }

@@ -66,7 +66,7 @@ function Verdict({ r }: { r: VerifyResult }) {
             <p className="nb-label">Checks</p>
             <ol className="nb-border divide-y-2 divide-ink">
               {r.checks.map((c, i) => (
-                <li key={i} className={`flex items-start gap-3 p-3 ${c.ok ? "bg-white" : "bg-[#ffe1e1]"}`}>
+                <li key={i} className={`flex items-start gap-3 p-3 ${c.ok ? "bg-white" : "bg-[#eaeaea]"}`}>
                   <span
                     className={`grid h-6 w-6 shrink-0 place-items-center border-2 border-ink font-mono text-sm font-bold ${
                       c.ok ? "bg-lime" : "bg-danger"

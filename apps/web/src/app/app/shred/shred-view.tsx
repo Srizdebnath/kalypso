@@ -175,7 +175,7 @@ export function ShredView() {
 
           {level === "account" && (
             <div className="space-y-4">
-              <div className="nb-border bg-[#ffe1e1] p-4 text-sm">
+              <div className="nb-border bg-[#eaeaea] p-4 text-sm">
                 <p className="text-lg font-bold">Destroy everything this vault has ever written.</p>
                 <ul className="mt-2 list-disc space-y-1 pl-5">
                   <li>Every record key, every month&apos;s collection key and the blind-index keys are destroyed.</li>
@@ -202,7 +202,7 @@ export function ShredView() {
             <ErrorBox title="Could not load records" error={records.error} onRetry={records.reload} />
           )}
           {pending.length > 0 && (
-            <div className="nb-border mb-5 bg-[#ffe1e1] p-4">
+            <div className="nb-border mb-5 bg-[#eaeaea] p-4">
               <p className="font-bold">
                 Keys destroyed, receipt not yet published ({pending.length})
               </p>

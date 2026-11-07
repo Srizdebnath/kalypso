@@ -196,7 +196,7 @@ export function RecordsPanel({
                 </p>
 
                 {r.pendingShred && (
-                  <div className="mt-3 border-2 border-ink bg-[#ffe1e1] p-2 text-sm">
+                  <div className="mt-3 border-2 border-ink bg-[#eaeaea] p-2 text-sm">
                     Keys destroyed, receipt not yet published.{" "}
                     <button
                       type="button"

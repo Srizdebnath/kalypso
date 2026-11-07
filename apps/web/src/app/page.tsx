@@ -1,61 +1,84 @@
 import Link from "next/link";
-import { Badge, Card } from "@/components/ui";
+import { CountUp, Reveal } from "@/components/motion";
+
+const WORD = "ARKIVZK".split("");
+
+const TECH = ["AES-256-GCM", "Noir · UltraHonk", "Poseidon2", "ML-KEM-768 + X25519", "Shamir 2-of-3", "HMAC blind indexes", "Swarm", "Arkiv DB-chain", "Ed25519 receipts"];
 
 const PILLARS = [
   {
     n: "01",
     title: "Encrypt",
-    tone: "bg-cyan",
+    glow: "#b6b6b6",
+    icon: "◈",
     lead: "Plaintext never leaves your device.",
     points: [
-      "AES-256-GCM in the browser, padded to size buckets so length leaks less.",
-      "A fresh random key per record, split 2-of-3: your device + two guardian servers.",
-      "Key shares travel to guardians wrapped with hybrid ML-KEM-768 + X25519.",
-      "Large files go to Swarm encrypted with the same per-record key scheme.",
+      "AES-256-GCM in the browser, padded to size buckets",
+      "Fresh key per record, split 2-of-3: device + two guardians",
+      "Shares travel wrapped in hybrid post-quantum KEM",
+      "Files go to Swarm under the same key scheme",
     ],
   },
   {
     n: "02",
     title: "Prove",
-    tone: "bg-pink",
-    lead: "Use the data without showing it.",
+    glow: "#a2a2a2",
+    icon: "◎",
+    lead: "Use your data without showing it.",
     points: [
-      "Each record carries a salted Poseidon2 commitment, public on Arkiv.",
-      "Noir circuits (UltraHonk) prove range and equality claims about a committed field.",
-      "Anyone can verify a proof from Arkiv with no key and no wallet.",
-      "The verifier learns the statement (e.g. age ≥ 18) and nothing else.",
+      "Salted Poseidon2 commitment published on Arkiv",
+      "Noir circuits prove ranges and equality",
+      "Anyone verifies from Arkiv, no wallet, no key",
+      "The verifier learns the claim, nothing else",
     ],
   },
   {
     n: "03",
     title: "Shred",
-    tone: "bg-lime",
+    glow: "#cbcbcb",
+    icon: "✕",
     lead: "Delete the key, not the data.",
     points: [
-      "All three key shares are destroyed: device and both guardians.",
-      "Each guardian signs a destruction attestation.",
-      "Entities are deleted on Arkiv and a public ShredReceipt entity is written.",
-      "Copies on old nodes remain, but there is no key left to open them.",
+      "Device and both guardians destroy their shares",
+      "Each guardian signs a destruction attestation",
+      "One tx deletes entities and writes a public receipt",
+      "Old copies remain; nothing can open them",
     ],
   },
   {
     n: "04",
     title: "Query",
-    tone: "bg-violet",
+    glow: "#9d9d9d",
+    icon: "⌕",
     lead: "A database on ciphertext.",
     points: [
-      "Exact, range and COUNT queries on encrypted fields, evaluated by Arkiv on HMAC tags.",
-      "Blind foreign keys: 1:N, many-to-many, JOIN, cascade shred and renew.",
-      "Atomic multi-record inserts; a child never outlives its parent.",
-      "Query planner with explain(), IN-batching and keyset paging.",
+      "Exact, range and COUNT on encrypted fields",
+      "Blind foreign keys: 1:N, M:N, JOIN, cascade",
+      "Atomic multi-record inserts",
+      "Planner with explain(), IN-batching, keyset paging",
     ],
   },
 ];
 
+const FLOW = [
+  { t: "Put", d: "Encrypt on device, commit, split the key, write ciphertext to Arkiv." },
+  { t: "Prove", d: "Generate a ZK proof over the commitment and publish it." },
+  { t: "Verify", d: "Anyone checks it from Arkiv in the browser. No keys." },
+  { t: "Shred", d: "All shares destroyed and signed. Receipt goes on-chain." },
+  { t: "Break it", d: "An archive node replays old calldata. Decryption fails." },
+];
+
+const STATS = [
+  { to: 6.1, decimals: 1, suffix: "×", label: "faster range search on encrypted data", note: "3,034 → 497 ms, live" },
+  { to: 1, prefix: "5→", label: "queries for a JOIN, down to one", note: "1,826 → 389 ms" },
+  { to: 1, suffix: " tx", label: "to shred a parent and all its children", note: "atomic, with receipt" },
+  { to: 14.6, decimals: 1, suffix: " KB", label: "per zero-knowledge proof", note: "prove ≈0.4 s, verify 15 ms" },
+];
+
 const QUERY_GAINS = [
-  ["Range on an encrypted field", "download + decrypt all: 3,034 ms", "1 query: 497 ms"],
-  ["COUNT on an encrypted field", "decrypt every record", "1 count query, 0 rows downloaded"],
-  ["Children of 5 parents (JOIN)", "5 queries: 1,826 ms", "1 query: 389 ms"],
+  ["Range on an encrypted field", "Download + decrypt all · 3,034 ms", "1 query · 497 ms"],
+  ["COUNT on an encrypted field", "Decrypt every record", "1 count query · 0 rows"],
+  ["Children of 5 parents (JOIN)", "5 queries · 1,826 ms", "1 query · 389 ms"],
   ["Insert patient + doctor + visit + lab", "4 txs, not atomic", "1 atomic tx"],
   ["Delete a parent and its children", "k+1 txs, found by scan", "1 tx, keys destroyed"],
   ["Proofs of 45 records", "45 queries", "3 queries"],
@@ -64,325 +87,390 @@ const QUERY_GAINS = [
 const EXPLORER = "https://rabdi.explorer.arkiv.network";
 const LIVE = [
   ["Wallet used for the live runs", "address", "0xBc670380edc8Ac07E91ca68cD6ac2Adf27881162"],
-  ["A shred receipt (guardian-signed)", "entity", "0x5257a663ad161985d8a85a10529de28a7982a97ee568bba65d0e73ba069b41fc"],
-  ["A month (epoch) shred receipt", "entity", "0xf309ad37f75fdf7c2996ee0d360c2c25af5c14abcf3b7ca65d7bde8dba15dfbf"],
-];
-
-const FLOW = [
-  { t: "Put", d: "Encrypt on device, commit with Poseidon2, split the key, write ciphertext + commitment to Arkiv." },
-  { t: "Prove", d: "Generate a ZK proof over the commitment (e.g. age ≥ 18) and publish it as an entity." },
-  { t: "Verify", d: "Anyone reads the proof from Arkiv and checks it in the browser. No keys involved." },
-  { t: "Shred", d: "Guardians + device destroy their shares and sign. Entities deleted, receipt published." },
-  { t: "Archive fails", d: "An archive node replays the old calldata it captured and tries to decrypt. It can't." },
-];
-
-const OLD_NODE = [
-  ["Ciphertext from an old block", "No: needs the record key, which was destroyed"],
-  ["Commitment C", "No: hiding, and the salt was destroyed with the key"],
-  ["Key shares", "Never on-chain. Only device and guardians held them"],
-  ["Ciphertext length", "Only the padded bucket size"],
+  ["A guardian-signed shred receipt", "entity", "0x5257a663ad161985d8a85a10529de28a7982a97ee568bba65d0e73ba069b41fc"],
+  ["A month-level shred receipt", "entity", "0xf309ad37f75fdf7c2996ee0d360c2c25af5c14abcf3b7ca65d7bde8dba15dfbf"],
 ];
 
 const LIMITS = [
-  {
-    t: "Anyone who decrypted before the shred keeps what they saw.",
-    d: "Shredding prevents future decryption. It cannot retract plaintext, screenshots or copies made while the key existed. No system can.",
-  },
-  {
-    t: "Guardians are trusted to really zeroize.",
-    d: "In this MVP the guardians are simple services holding shares in memory. Threshold splitting means one lying guardian alone is not enough, but you are trusting their deletion. TEE attestation is future work.",
-  },
-  {
-    t: "Exported or backed-up shares must be shredded too.",
-    d: "If you copied key material out of the app yourself, arkivzk cannot reach it.",
-  },
-  {
-    t: "Published metadata stays in history.",
-    d: "Timestamps, schema id, owner address and the padded size bucket are public on Arkiv and remain in old blocks after a shred.",
-  },
-  {
-    t: "Old proofs stay mathematically valid.",
-    d: "A proof was true when it was made. Verifiers must check the record's shred status (this app does) and treat shredded records as revoked.",
-  },
-  {
-    t: "Search indexes leak patterns, by design.",
-    d: "Opt-in only. An equality tag shows which of your records in the same month share a value; a range tag shows approximate order within a month; a foreign key shows siblings. Values never leave your device.",
-  },
-  {
-    t: "Malware on your device is out of scope.",
-    d: "Encryption happens on your device, so whoever controls the device sees the plaintext.",
-  },
+  ["Anyone who decrypted before the shred keeps what they saw.", "Shredding stops future decryption. It can't take back plaintext, screenshots or copies made while the key existed."],
+  ["Guardians are trusted to really delete.", "Two-of-three means one lying guardian alone isn't enough, but two colluding guardians could keep a key. TEE attestation is future work."],
+  ["Search indexes leak patterns, by design.", "Opt-in per field. Equality tags show which of your records share a value in the same month; range tags show approximate order; foreign keys show siblings."],
+  ["Published metadata stays in history.", "Timestamps, schema id, owner address and the padded size bucket are public on Arkiv and remain in old blocks."],
+  ["Old proofs stay mathematically valid.", "A proof was true when it was made. Verifiers must check shred status (this app does) and treat shredded records as revoked."],
+  ["Malware on your device is out of scope.", "Encryption happens on your device, so whoever controls it sees the plaintext. The code is not audited."],
 ];
+
+function Eyebrow({ children }: { children: React.ReactNode }) {
+  return (
+    <p className="mb-4 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 font-mono text-[0.7rem] tracking-[0.2em] text-[#b9b9b9] uppercase">
+      <span className="h-1.5 w-1.5 rounded-full bg-[#a3a3a3] shadow-[0_0_8px_#a3a3a3]" />
+      {children}
+    </p>
+  );
+}
+
+function Ring({ className = "" }: { className?: string }) {
+  return (
+    <div aria-hidden className={`pointer-events-none absolute left-1/2 aspect-square -translate-x-1/2 ${className}`}>
+      {/* soft halo */}
+      <div className="absolute inset-[-12%] rounded-full bg-[radial-gradient(closest-side,rgb(93_93_93/0.35),transparent_75%)]" />
+      {/* the ring */}
+      <div
+        className="absolute inset-0 rounded-full border-2 border-white/80"
+        style={{
+          boxShadow: "0 0 30px 6px rgb(173 173 173 / 0.7), inset 0 0 40px 4px rgb(147 147 147 / 0.55), 0 0 120px 30px rgb(84 84 84 / 0.45)",
+          animation: "pulse-glow 6s ease-in-out infinite",
+        }}
+      />
+      {/* travelling highlight */}
+      <div
+        className="absolute inset-0 rounded-full"
+        style={{
+          background: "conic-gradient(from 0deg, transparent 0 62%, rgb(206 206 206 / 0.9) 74%, #fff 76%, rgb(172 172 172 / 0.7) 79%, transparent 86%)",
+          mask: "radial-gradient(farthest-side, transparent calc(100% - 7px), #000 calc(100% - 6px))",
+          WebkitMask: "radial-gradient(farthest-side, transparent calc(100% - 7px), #000 calc(100% - 6px))",
+          filter: "blur(1px) drop-shadow(0 0 10px #fff)",
+          animation: "spin-slow 9s linear infinite",
+        }}
+      />
+      {/* inner arc */}
+      <div
+        className="absolute inset-[22%] rounded-full"
+        style={{
+          background: "conic-gradient(from 200deg, transparent 0 55%, rgb(147 147 147 / 0.0) 56%, rgb(188 188 188 / 0.85) 70%, transparent 80%)",
+          mask: "radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2px))",
+          WebkitMask: "radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2px))",
+          filter: "drop-shadow(0 0 8px rgb(173 173 173))",
+          animation: "spin-slow 16s linear infinite reverse",
+        }}
+      />
+    </div>
+  );
+}
 
 export default function Home() {
   return (
-    <div className="mx-auto max-w-6xl px-4">
+    <div className="-mt-14 overflow-x-clip">
       {/* HERO */}
-      <section className="grid gap-10 py-14 md:grid-cols-[1.25fr_1fr] md:items-center md:py-20">
-        <div className="min-w-0">
-          <div className="mb-5 flex flex-wrap gap-2">
-            <Badge tone="yellow">TypeScript library</Badge>
-            <Badge tone="white">for Arkiv DB-chain</Badge>
-          </div>
-          <h1 className="text-5xl font-bold leading-[0.95] tracking-tight md:text-7xl">
-            Private data on a{" "}
-            <span className="relative inline-block">
-              <span className="relative z-10">public</span>
-              <span className="absolute inset-x-0 bottom-1 z-0 h-4 bg-pink md:h-6" aria-hidden />
-            </span>{" "}
-            database.
-          </h1>
-          <p className="mt-6 max-w-xl text-lg md:text-xl">
-            Arkiv stores everything in the open, and <code className="font-mono font-bold">deleteEntity</code>{" "}
-            only removes data from current state: anyone who synced the old blocks still has it.
-            arkivzk encrypts on your device, lets you prove facts about your data in zero knowledge,
-            and makes deletion real by destroying the keys.
-          </p>
-          <div className="mt-8 flex flex-wrap gap-3">
-            <Link href="/app" className="nb-btn bg-lime px-6 py-3 text-base">
-              Open the app →
-            </Link>
-            <Link href="/docs" className="nb-btn bg-white px-6 py-3 text-base">
-              Read the docs
-            </Link>
-            <Link href="/archive" className="nb-btn bg-yellow px-6 py-3 text-base">
-              Try to break it
-            </Link>
-          </div>
-        </div>
+      <section className="relative flex min-h-[100svh] flex-col items-center justify-end overflow-hidden pb-16 sm:pb-20">
+        <div className="absolute inset-0 bg-[radial-gradient(90%_70%_at_50%_0%,#1c1c1c_0%,#0a0a0a_45%,#000000_100%)]" />
+        <div className="stars" />
+        <Ring className="top-[-34vw] w-[118vw] sm:top-[-26vw] sm:w-[86vw] lg:top-[-330px] lg:w-[980px]" />
 
-        <div className="nb-card min-w-0 rotate-1 bg-ink p-0 text-paper">
-          <div className="flex items-center gap-2 border-b-[3px] border-paper/20 px-4 py-2 font-mono text-xs">
-            <span className="h-3 w-3 border-2 border-paper bg-danger" />
-            <span className="h-3 w-3 border-2 border-paper bg-yellow" />
-            <span className="h-3 w-3 border-2 border-paper bg-lime" />
-            <span className="ml-2 opacity-70">@arkivzk/sdk</span>
+        <div className="relative z-10 flex w-full max-w-6xl flex-col items-center px-4">
+          <h1 aria-label="arkivzk" className="font-display flex w-full justify-between px-1 text-[13vw] leading-none font-bold text-white drop-shadow-[0_0_30px_rgb(164_164_164/0.6)] sm:text-[10vw] lg:text-[8.5rem]">
+            {WORD.map((c, i) => (
+              <span key={i} aria-hidden style={{ animation: `letter-in 1.1s cubic-bezier(.2,.7,.2,1) ${150 + i * 90}ms both` }}>
+                {c}
+              </span>
+            ))}
+          </h1>
+
+          <p className="mt-10 text-center text-xl font-semibold tracking-[0.18em] text-white uppercase sm:text-2xl md:text-3xl" style={{ animation: "fade-up 1s .9s both" }}>
+            Private data on a public chain
+          </p>
+          <p className="mt-4 max-w-2xl text-center text-[#c0c0c0] sm:text-lg" style={{ animation: "fade-up 1s 1.05s both" }}>
+            On Arkiv, <code className="font-mono text-white">deleteEntity</code> only clears current state. arkivzk encrypts on your
+            device, proves facts in zero knowledge, and makes deletion real by destroying the keys.
+          </p>
+          <div className="mt-8 flex flex-wrap justify-center gap-3" style={{ animation: "fade-up 1s 1.2s both" }}>
+            <Link href="/app" className="nb-btn bg-ink px-8 py-3.5 text-base">
+              Open the app
+            </Link>
+            <Link href="/docs/00-getting-started" className="nb-btn glass px-8 py-3.5 text-base text-white">
+              Get started →
+            </Link>
           </div>
-          <pre className="overflow-x-auto p-4 font-mono text-[0.8rem] leading-relaxed">
-            <code>
-              <span className="text-cyan">const</span> {"{ entityKey }"} = <span className="text-cyan">await</span> zk.<span className="text-yellow">put</span>({"{"}{"\n"}
-              {"  "}schemaId: <span className="text-lime">&quot;medical.v1&quot;</span>, values: {"{ age: 25 }"},{"\n"}
-              {"  "}rangeField: <span className="text-lime">&quot;age&quot;</span>, retentionSeconds{"\n"}
-              {"}"}){"\n\n"}
-              <span className="text-paper/50">{"// zero-knowledge claim, published on Arkiv"}</span>{"\n"}
-              <span className="text-cyan">await</span> zk.<span className="text-yellow">prove</span>(entityKey, {"{ field: "}<span className="text-lime">&quot;age&quot;</span>{", min: 18 }"}, nonce){"\n\n"}
-              <span className="text-paper/50">{"// anyone, no key needed"}</span>{"\n"}
-              <span className="text-cyan">await</span> <span className="text-yellow">verifyProofEntity</span>(publicClient, proofKey){"\n\n"}
-              <span className="text-paper/50">{"// Arkiv filters ciphertext tags, never values"}</span>{"\n"}
-              <span className="text-cyan">await</span> zk.<span className="text-yellow">searchRange</span>(<span className="text-lime">&quot;medical.v1&quot;</span>, <span className="text-lime">&quot;age&quot;</span>, 18, 40){"\n\n"}
-              <span className="text-paper/50">{"// gone for everyone, children too"}</span>{"\n"}
-              <span className="text-cyan">await</span> zk.<span className="text-pink">shred</span>([entityKey], onStep, {"{ cascade: true }"})
-            </code>
-          </pre>
+          <p className="mt-5 flex items-center gap-2 text-sm text-[#a3a3a3]" style={{ animation: "fade-up 1s 1.35s both" }}>
+            <span className="relative flex h-2 w-2">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#cbcbcb] opacity-60" />
+              <span className="relative inline-flex h-2 w-2 rounded-full bg-[#cbcbcb]" />
+            </span>
+            Live on Arkiv Rabdi · chain 7794095
+          </p>
         </div>
       </section>
 
-      {/* PILLARS */}
-      <section className="py-10">
-        <h2 className="mb-8 text-3xl font-bold md:text-4xl">Four pillars</h2>
-        <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-4">
-          {PILLARS.map((p) => (
-            <article key={p.title} className="nb-card flex flex-col p-0">
-              <header className={`${p.tone} border-b-[3px] border-ink p-5`}>
-                <span className="font-mono text-sm font-bold">{p.n}</span>
-                <h3 className="text-3xl font-bold">{p.title}</h3>
-                <p className="mt-1 font-medium">{p.lead}</p>
-              </header>
-              <ul className="space-y-3 p-5 text-[0.95rem]">
-                {p.points.map((pt) => (
-                  <li key={pt} className="flex gap-2">
-                    <span className="mt-1.5 h-2.5 w-2.5 shrink-0 bg-ink" aria-hidden />
-                    <span>{pt}</span>
+      {/* TECH MARQUEE */}
+      <section aria-label="Built with" className="relative border-y border-white/10 bg-white/[0.02] py-5">
+        <div className="overflow-hidden [mask-image:linear-gradient(90deg,transparent,#000_10%,#000_90%,transparent)]">
+          <div className="flex w-max gap-12 whitespace-nowrap" style={{ animation: "marquee 38s linear infinite" }}>
+            {[...TECH, ...TECH].map((t, i) => (
+              <span key={i} className="flex items-center gap-12 font-mono text-sm tracking-wider text-[#999999]">
+                {t}
+                <span className="text-[#5b5b5b]">✦</span>
+              </span>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <div className="mx-auto max-w-6xl px-4">
+        {/* PROBLEM */}
+        <section className="grid items-center gap-12 py-28 md:grid-cols-2">
+          <Reveal>
+            <Eyebrow>The problem</Eyebrow>
+            <h2 className="text-gradient text-4xl leading-tight font-bold tracking-tight md:text-5xl">
+              On a public chain, delete doesn&apos;t erase.
+            </h2>
+            <p className="mt-5 text-lg text-[#c0c0c0]">
+              Arkiv stores attributes, owners and full transaction history in the open. Removing an entity drops it from current
+              state, but every node and archive that synced the old blocks still has the bytes.
+            </p>
+            <p className="mt-4 text-lg text-[#c0c0c0]">
+              arkivzk makes those bytes useless: only ciphertext ever goes on-chain, and the key lives in three shares that can
+              all be destroyed with a signed receipt.
+            </p>
+          </Reveal>
+          <Reveal delay={150}>
+            <div className="nb-card p-0 font-mono text-[0.8rem] leading-relaxed">
+              <div className="flex items-center gap-2 border-b border-white/10 px-4 py-3">
+                <span className="h-2.5 w-2.5 rounded-full bg-[#ff5c7a]" />
+                <span className="h-2.5 w-2.5 rounded-full bg-[#d5d5d5]" />
+                <span className="h-2.5 w-2.5 rounded-full bg-[#cbcbcb]" />
+                <span className="ml-2 text-xs text-[#7a7a7a]">what the archive page shows</span>
+              </div>
+              <div className="space-y-2 p-5">
+                <p><span className="text-[#7a7a7a]">$</span> zk.shred([record])</p>
+                <p className="pl-4 text-[#cbcbcb]">✓ guardian-1 zeroized share · signed</p>
+                <p className="pl-4 text-[#cbcbcb]">✓ guardian-2 zeroized share · signed</p>
+                <p className="pl-4 text-[#cbcbcb]">✓ entity deleted · public receipt written</p>
+                <p className="pt-3"><span className="text-[#7a7a7a]">$</span> archive.replay(record.createTx)</p>
+                <p className="pl-4 text-[#cbcbcb]">→ ciphertext recovered from old calldata</p>
+                <p className="pl-4 text-[#cbcbcb]">→ key shares available · 0 of 3</p>
+                <p className="pl-4 text-[#ff5c7a]">✕ decrypt failed: no key exists anywhere</p>
+              </div>
+            </div>
+          </Reveal>
+        </section>
+
+        {/* PILLARS */}
+        <section className="py-10">
+          <Reveal className="mb-12 text-center">
+            <Eyebrow>What it does</Eyebrow>
+            <h2 className="text-gradient text-4xl font-bold tracking-tight md:text-5xl">Four primitives, one library</h2>
+          </Reveal>
+          <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+            {PILLARS.map((p, i) => (
+              <Reveal key={p.title} delay={i * 110}>
+                <article className="nb-card lift group h-full p-6">
+                  <div aria-hidden className="absolute inset-x-0 top-0 h-px" style={{ background: `linear-gradient(90deg, transparent, ${p.glow}, transparent)` }} />
+                  <div aria-hidden className="absolute -top-16 left-1/2 h-32 w-32 -translate-x-1/2 rounded-full opacity-30 blur-3xl transition-opacity duration-500 group-hover:opacity-60" style={{ background: p.glow }} />
+                  <div className="relative">
+                    <div className="flex items-center justify-between">
+                      <span className="grid h-11 w-11 place-items-center rounded-2xl border border-white/10 bg-white/5 text-xl" style={{ color: p.glow, boxShadow: `0 0 24px -6px ${p.glow}` }}>
+                        {p.icon}
+                      </span>
+                      <span className="font-mono text-xs text-[#7a7a7a]">{p.n}</span>
+                    </div>
+                    <h3 className="mt-5 text-2xl font-bold text-white">{p.title}</h3>
+                    <p className="mt-1 text-sm" style={{ color: p.glow }}>{p.lead}</p>
+                    <ul className="mt-5 space-y-2.5 text-sm text-[#c0c0c0]">
+                      {p.points.map((pt) => (
+                        <li key={pt} className="flex gap-2.5">
+                          <span className="mt-2 h-1 w-1 shrink-0 rounded-full bg-[#a3a3a3]" />
+                          {pt}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                </article>
+              </Reveal>
+            ))}
+          </div>
+        </section>
+
+        {/* HOW */}
+        <section id="how" className="scroll-mt-28 py-28">
+          <Reveal className="mb-14 text-center">
+            <Eyebrow>How it works</Eyebrow>
+            <h2 className="text-gradient text-4xl font-bold tracking-tight md:text-5xl">From write to provable erasure</h2>
+          </Reveal>
+          <ol className="relative grid gap-8 md:grid-cols-5 md:gap-4">
+            <div aria-hidden className="absolute top-6 right-[10%] left-[10%] hidden h-px bg-gradient-to-r from-transparent via-[#8b8b8b] to-transparent md:block" />
+            {FLOW.map((f, i) => (
+              <Reveal as="li" key={f.t} delay={i * 120} className="relative text-center">
+                <span className="relative mx-auto grid h-12 w-12 place-items-center rounded-full border border-[#a3a3a3]/60 bg-[#121212] font-mono text-sm font-bold text-white shadow-[0_0_24px_-2px_rgb(138_138_138/0.8)]">
+                  {String(i + 1).padStart(2, "0")}
+                </span>
+                <h3 className="mt-4 text-lg font-bold text-white">{f.t}</h3>
+                <p className="mx-auto mt-1.5 max-w-[14rem] text-sm text-[#a3a3a3]">{f.d}</p>
+              </Reveal>
+            ))}
+          </ol>
+
+          <Reveal className="mt-20">
+            <div className="grid items-center gap-10 md:grid-cols-[1fr_1.2fr]">
+              <div>
+                <h3 className="text-3xl font-bold text-white">Five calls in TypeScript</h3>
+                <p className="mt-3 text-[#c0c0c0]">
+                  The SDK wraps encryption, key custody, proofs, queries and shredding. Your app passes values. Arkiv only ever sees
+                  ciphertext, commitments and HMAC tags.
+                </p>
+                <div className="mt-6 flex flex-wrap gap-3">
+                  <Link href="/docs/06-sdk-reference" className="nb-btn glass text-white">SDK reference</Link>
+                  <Link href="/docs/api" className="nb-btn glass text-white">Client API</Link>
+                </div>
+              </div>
+              <div className="nb-card p-0">
+                <div className="flex items-center justify-between border-b border-white/10 px-4 py-3 font-mono text-xs text-[#7a7a7a]">
+                  <span>app.ts</span>
+                  <span>@arkivzk/sdk</span>
+                </div>
+                <pre className="overflow-x-auto p-5 font-mono text-[0.8rem] leading-relaxed text-[#dcdcdc]">
+                  <code>
+                    <span className="text-[#7a7a7a]">{"// encrypt on device, range-searchable"}</span>{"\n"}
+                    <span className="text-[#b6b6b6]">const</span> {"{ entityKey }"} = <span className="text-[#b6b6b6]">await</span> zk.<span className="text-[#d5d5d5]">put</span>({"{"} schemaId, values: {"{ age: 25 }"}, rangeField: <span className="text-[#cbcbcb]">&quot;age&quot;</span> {"}"}){"\n\n"}
+                    <span className="text-[#7a7a7a]">{"// zero-knowledge claim, published on Arkiv"}</span>{"\n"}
+                    <span className="text-[#b6b6b6]">await</span> zk.<span className="text-[#d5d5d5]">prove</span>(entityKey, {"{ field: "}<span className="text-[#cbcbcb]">&quot;age&quot;</span>{", min: 18 }"}, nonce){"\n\n"}
+                    <span className="text-[#7a7a7a]">{"// anyone, no key needed"}</span>{"\n"}
+                    <span className="text-[#b6b6b6]">await</span> <span className="text-[#d5d5d5]">verifyProofEntity</span>(publicClient, proofKey){"\n\n"}
+                    <span className="text-[#7a7a7a]">{"// Arkiv filters tags, never values"}</span>{"\n"}
+                    <span className="text-[#b6b6b6]">await</span> zk.<span className="text-[#d5d5d5]">searchRange</span>(schemaId, <span className="text-[#cbcbcb]">&quot;age&quot;</span>, 18, 40){"\n\n"}
+                    <span className="text-[#7a7a7a]">{"// gone for everyone, children too"}</span>{"\n"}
+                    <span className="text-[#b6b6b6]">await</span> zk.<span className="text-[#a2a2a2]">shred</span>([entityKey], onStep, {"{ cascade: true }"})
+                  </code>
+                </pre>
+              </div>
+            </div>
+          </Reveal>
+        </section>
+
+        {/* STATS */}
+        <section className="py-10">
+          <div className="grid gap-px overflow-hidden rounded-3xl border border-white/10 bg-white/10 sm:grid-cols-2 lg:grid-cols-4">
+            {STATS.map((s, i) => (
+              <Reveal key={s.label} delay={i * 100} className="h-full">
+                <div className="h-full bg-[#0c0c0c] p-7">
+                  <p className="text-gradient font-display text-4xl font-bold">
+                    <CountUp to={s.to} decimals={s.decimals ?? 0} prefix={s.prefix} suffix={s.suffix} />
+                  </p>
+                  <p className="mt-3 text-sm text-white">{s.label}</p>
+                  <p className="mt-1 font-mono text-xs text-[#7a7a7a]">{s.note}</p>
+                </div>
+              </Reveal>
+            ))}
+          </div>
+        </section>
+
+        {/* QUERY */}
+        <section className="py-28">
+          <Reveal className="mb-10 flex flex-wrap items-end justify-between gap-6">
+            <div className="max-w-2xl">
+              <Eyebrow>Encrypted queries</Eyebrow>
+              <h2 className="text-gradient text-4xl font-bold tracking-tight md:text-5xl">Query it like a database</h2>
+              <p className="mt-4 text-[#c0c0c0]">
+                Arkiv can&apos;t filter values it can&apos;t read, so we never ask it to. Each query compiles to equality checks on HMAC
+                tags that Arkiv&apos;s own index answers. Measured live on Rabdi, with the same results as decrypting everything.
+              </p>
+            </div>
+            <Link href="/docs/07-performance" className="nb-btn glass text-white">Full comparison →</Link>
+          </Reveal>
+          <Reveal>
+            <div className="nb-card overflow-x-auto p-0">
+              <table className="w-full min-w-[40rem] text-sm">
+                <thead>
+                  <tr className="text-left text-xs tracking-wider text-[#7a7a7a] uppercase">
+                    <th className="px-6 py-4 font-medium">Query</th>
+                    <th className="px-6 py-4 font-medium">Arkiv alone, on ciphertext</th>
+                    <th className="px-6 py-4 font-medium text-[#b9b9b9]">With arkivzk</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {QUERY_GAINS.map(([q, before, after]) => (
+                    <tr key={q} className="border-t border-white/[0.07] transition-colors hover:bg-white/[0.03]">
+                      <td className="px-6 py-4 font-medium text-white">{q}</td>
+                      <td className="px-6 py-4 font-mono text-xs text-[#999999]">{before}</td>
+                      <td className="px-6 py-4 font-mono text-xs text-[#cbcbcb]">{after}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </Reveal>
+        </section>
+
+        {/* BREAK IT + LIVE */}
+        <section className="grid gap-5 lg:grid-cols-2">
+          <Reveal className="h-full">
+            <div className="nb-card h-full p-8">
+              <div aria-hidden className="absolute -right-24 -bottom-24 h-72 w-72 rounded-full border border-white/20 shadow-[0_0_60px_10px_rgb(111_111_111/0.35),inset_0_0_40px_rgb(111_111_111/0.4)]" />
+              <div className="relative">
+                <Eyebrow>Try to break it</Eyebrow>
+                <h2 className="text-3xl font-bold text-white">Run the archive node attack</h2>
+                <p className="mt-3 max-w-md text-[#c0c0c0]">
+                  Our indexer captured raw calldata for every arkivzk write. Pick a shredded record and watch it fail to decrypt:
+                  the ciphertext is there, the key isn&apos;t.
+                </p>
+                <Link href="/archive" className="nb-btn bg-ink mt-8">Open the archive node →</Link>
+              </div>
+            </div>
+          </Reveal>
+          <Reveal delay={120} className="h-full">
+            <div className="nb-card h-full p-8">
+              <Eyebrow>Live on Rabdi</Eyebrow>
+              <h2 className="text-3xl font-bold text-white">Check the chain yourself</h2>
+              <ul className="mt-6 space-y-3">
+                {LIVE.map(([label, kind, value]) => (
+                  <li key={value}>
+                    <a
+                      href={`${EXPLORER}/${kind}/${value}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="group block rounded-2xl border border-white/10 bg-white/[0.03] p-4 transition-colors hover:border-[#a3a3a3]/60"
+                    >
+                      <span className="flex items-center justify-between text-sm text-white">
+                        {label}
+                        <span className="text-[#7a7a7a] transition-transform group-hover:translate-x-1">↗</span>
+                      </span>
+                      <span className="mt-1 block truncate font-mono text-xs text-[#999999]">{value}</span>
+                    </a>
                   </li>
                 ))}
               </ul>
-            </article>
-          ))}
-        </div>
-      </section>
+            </div>
+          </Reveal>
+        </section>
 
-      {/* FLOW */}
-      <section className="py-10">
-        <h2 className="mb-8 text-3xl font-bold md:text-4xl">How it works</h2>
-        <ol className="grid gap-4 md:grid-cols-5">
-          {FLOW.map((f, i) => (
-            <li key={f.t} className="nb-card relative p-4">
-              <span className="absolute -top-4 -left-3 grid h-9 w-9 place-items-center border-[3px] border-ink bg-yellow font-mono font-bold">
-                {i + 1}
-              </span>
-              <h3 className="mt-2 text-xl font-bold">{f.t}</h3>
-              <p className="mt-2 text-sm">{f.d}</p>
-            </li>
-          ))}
-        </ol>
-      </section>
-
-      {/* OLD NODE + NUMBERS */}
-      <section className="grid gap-6 py-10 md:grid-cols-[1.4fr_1fr]">
-        <Card>
-          <h2 className="text-2xl font-bold">What an old node runner has after a shred</h2>
-          <p className="mt-2 text-sm">
-            They synced every block, so they keep every byte that was ever written. That is fine,
-            because none of it is a key.
-          </p>
-          <div className="mt-4 overflow-x-auto">
-            <table className="w-full border-[3px] border-ink text-sm">
-              <thead>
-                <tr className="bg-lime">
-                  <th className="border-2 border-ink p-2 text-left">They have</th>
-                  <th className="border-2 border-ink p-2 text-left">Can they read it?</th>
-                </tr>
-              </thead>
-              <tbody>
-                {OLD_NODE.map(([a, b]) => (
-                  <tr key={a}>
-                    <td className="border-2 border-ink p-2 font-medium">{a}</td>
-                    <td className="border-2 border-ink p-2">{b}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <Link href="/archive" className="nb-btn mt-5 bg-yellow">
-            See it on the archive node page →
-          </Link>
-        </Card>
-
-        <Card tone="violet">
-          <h2 className="text-2xl font-bold">Proof numbers</h2>
-          <p className="mt-1 text-xs font-bold uppercase tracking-wide">
-            Measured on a laptop (Node, warm)
-          </p>
-          <dl className="mt-5 space-y-4">
-            {[
-              ["0.4–0.6 s", "proof generation"],
-              ["15 ms", "verification"],
-              ["14.6 KB", "proof size"],
-              ["3.7 KB", "verification key (stored once)"],
-            ].map(([v, k]) => (
-              <div key={k} className="nb-border flex items-baseline justify-between gap-3 bg-white p-3">
-                <dt className="text-sm font-medium">{k}</dt>
-                <dd className="font-mono text-2xl font-bold">{v}</dd>
-              </div>
-            ))}
-          </dl>
-          <p className="mt-4 text-xs">
-            The first proof in a fresh tab also loads the WASM prover. In our browser run, proving plus publishing
-            the proof on Arkiv took about 30 s, mostly waiting for the transaction.
-          </p>
-        </Card>
-      </section>
-
-      {/* QUERY */}
-      <section className="py-10">
-        <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
-          <div className="max-w-2xl">
-            <h2 className="text-3xl font-bold md:text-4xl">Query it like a database</h2>
-            <p className="mt-2">
-              Arkiv can&apos;t filter, count or join values it can&apos;t read, so we never ask it to. arkivzk turns each
-              query into equality checks on HMAC tags that Arkiv&apos;s own index can answer. Measured live on Rabdi,
-              same results as decrypting everything.
+        {/* LIMITS */}
+        <section id="limits" className="py-28">
+          <Reveal className="mb-10 max-w-2xl">
+            <Eyebrow>Limits</Eyebrow>
+            <h2 className="text-gradient text-4xl font-bold tracking-tight md:text-5xl">What it doesn&apos;t protect against</h2>
+            <p className="mt-4 text-[#c0c0c0]">
+              A hackathon build, research-grade and not audited. Full threat model in{" "}
+              <Link href="/docs/01-idea" className="text-white underline decoration-white/30 underline-offset-4 hover:decoration-white">01 · Idea</Link>{" "}
+              and{" "}
+              <Link href="/docs/08-design-faq" className="text-white underline decoration-white/30 underline-offset-4 hover:decoration-white">08 · Design FAQ</Link>.
             </p>
-          </div>
-          <Link href="/docs/07-performance#5-queries-what-arkiv-does-what-it-cant-do-on-encrypted-data-and-what-arkivzk-adds" className="nb-btn bg-violet">
-            Full comparison →
-          </Link>
-        </div>
-        <div className="nb-card overflow-x-auto p-0">
-          <table className="w-full min-w-[36rem] text-sm">
-            <thead>
-              <tr className="bg-ink text-left text-paper">
-                <th className="p-3">Query</th>
-                <th className="p-3">Arkiv alone, on encrypted data</th>
-                <th className="p-3">arkivzk</th>
-              </tr>
-            </thead>
-            <tbody>
-              {QUERY_GAINS.map(([q, before, after]) => (
-                <tr key={q} className="border-t-[3px] border-ink">
-                  <td className="p-3 font-bold">{q}</td>
-                  <td className="p-3 font-mono text-xs">{before}</td>
-                  <td className="bg-lime/60 p-3 font-mono text-xs font-bold">{after}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      {/* LIVE */}
-      <section className="py-10">
-        <div className="nb-card p-6 md:p-8">
-          <div className="flex flex-wrap items-center gap-3">
-            <h2 className="text-2xl font-bold md:text-3xl">Live on Arkiv Rabdi</h2>
-            <Badge tone="lime">chain 7794095</Badge>
-          </div>
-          <p className="mt-2 max-w-3xl text-sm">
-            Every flow on this site ran against the real testnet. Open these in the explorer, or run{" "}
-            <code className="font-mono font-bold">node packages/sdk/e2e.mjs</code> yourself.
-          </p>
-          <ul className="mt-5 space-y-3">
-            {LIVE.map(([label, kind, value]) => (
-              <li key={value} className="nb-border flex flex-col gap-1 bg-paper p-3 sm:flex-row sm:items-center sm:justify-between">
-                <span className="text-sm font-bold">{label}</span>
-                <a
-                  href={`${EXPLORER}/${kind}/${value}`}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="break-all font-mono text-xs underline decoration-2"
-                >
-                  {value}
-                </a>
-              </li>
-            ))}
-          </ul>
-        </div>
-      </section>
-
-      {/* WHY FAST */}
-      <section className="py-10">
-        <div className="nb-card flex flex-col gap-5 bg-cyan p-6 md:flex-row md:items-center md:justify-between md:p-8">
-          <div className="max-w-2xl">
-            <h2 className="text-3xl font-bold md:text-4xl">Why it&apos;s fast</h2>
-            <p className="mt-2">
-              Time and space complexity of each operation, plus before-vs-after tables for the
-              optimizations we made.
-            </p>
-          </div>
-          <Link href="/docs/07-performance" className="nb-btn shrink-0 bg-white px-6 py-3 text-base">
-            Read the performance notes →
-          </Link>
-        </div>
-      </section>
-
-      {/* LIMITS */}
-      <section id="limits" className="py-10">
-        <div className="nb-card bg-yellow p-6 md:p-8">
-          <h2 className="text-3xl font-bold md:text-4xl">Limits</h2>
-          <p className="mt-2 max-w-3xl">
-            What arkivzk does <strong>not</strong> protect against. This is a hackathon build: the
-            code is not audited.
-          </p>
-          <div className="mt-6 grid gap-4 md:grid-cols-2">
-            {LIMITS.map((l) => (
-              <div key={l.t} className="nb-border bg-white p-4 md:last:odd:col-span-2">
-                <h3 className="font-bold">{l.t}</h3>
-                <p className="mt-1 text-sm">{l.d}</p>
-              </div>
+          </Reveal>
+          <div className="grid gap-3 md:grid-cols-2">
+            {LIMITS.map(([t, d], i) => (
+              <Reveal key={t} delay={(i % 2) * 80}>
+                <details className="group nb-border bg-white/[0.02] p-5 transition-colors open:border-[#a3a3a3]/40 open:bg-white/[0.04]">
+                  <summary className="flex cursor-pointer list-none items-center justify-between gap-4 font-medium text-white">
+                    {t}
+                    <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full border border-white/15 text-[#b9b9b9] transition-transform group-open:rotate-45">+</span>
+                  </summary>
+                  <p className="mt-3 text-sm text-[#a3a3a3]">{d}</p>
+                </details>
+              </Reveal>
             ))}
           </div>
-          <p className="mt-6 text-sm">
-            Full threat model in{" "}
-            <Link href="/docs/01-idea" className="font-bold underline decoration-[3px]">
-              01 · Idea, threat model, promises
-            </Link>{" "}
-            and{" "}
-            <Link href="/docs/04-crypto-shredding" className="font-bold underline decoration-[3px]">
-              04 · Crypto-shredding
-            </Link>
-            .
-          </p>
-        </div>
+        </section>
+      </div>
+
+      {/* FINAL CTA */}
+      <section className="relative overflow-hidden py-32">
+        <Ring className="top-1/2 w-[640px] max-w-[140vw] -translate-y-1/2 opacity-70" />
+        <Reveal className="relative z-10 mx-auto max-w-2xl px-4 text-center">
+          <h2 className="text-gradient text-4xl font-bold tracking-tight md:text-6xl">Running in ten minutes</h2>
+          <p className="mt-5 text-lg text-[#cbcbcb]">Clone, set one access key, start two guardians and the app. Everything runs against the real testnet.</p>
+          <div className="mt-8 flex flex-wrap justify-center gap-3">
+            <Link href="/docs/00-getting-started" className="nb-btn bg-ink px-8 py-3.5 text-base">Getting started</Link>
+            <Link href="/app" className="nb-btn glass px-8 py-3.5 text-base text-white">Open the app</Link>
+          </div>
+        </Reveal>
       </section>
     </div>
   );

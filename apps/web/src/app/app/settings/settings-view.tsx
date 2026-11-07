@@ -96,7 +96,7 @@ function ExportKit() {
           <input type="checkbox" className="h-4 w-4 accent-black" checked={show} onChange={(e) => setShow(e.target.checked)} />
           show passphrase
         </label>
-        <div className="nb-border bg-[#ffe1e1] p-3 text-sm">
+        <div className="nb-border bg-[#eaeaea] p-3 text-sm">
           <p className="font-bold">A kit is key material outside arkivzk&apos;s reach.</p>
           <p className="mt-1">
             Shredding a record can&apos;t delete copies of this file. If you shred later, destroy old

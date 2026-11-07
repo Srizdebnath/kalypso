@@ -82,7 +82,7 @@ export function ReceiptCard({ receipt, showLink = true }: { receipt: ShredReceip
                   <p className="font-bold">{a.guardian}</p>
                   <Badge tone="white">{a.valid ? "✓ valid signature" : "✕ invalid signature"}</Badge>
                 </div>
-                <dl className="mt-2 bg-white/70 px-2">
+                <dl className="mt-2 rounded-lg bg-white/5 px-2">
                   <KV k="Public key">{a.publicKey}</KV>
                   <KV k="Signature">{a.signature}</KV>
                 </dl>
