@@ -1,10 +1,10 @@
 # 08 · Why this lives on top of Arkiv (design FAQ)
 
-Arkiv's query language has equality, ranges, `STARTSWITH`, `EXISTS`, AND/OR, one sort key and filtered counts. It has no JOINs, no foreign keys, no `IN`, no `NOT`, and no aggregates beyond count. arkivzk adds encrypted search, encrypted counts and a relational layer on top of it. This page explains why those features belong in a library rather than in Arkiv itself, and what we do and don't claim.
+Arkiv's query language has equality, ranges, `STARTSWITH`, `EXISTS`, AND/OR, one sort key and filtered counts. It has no JOINs, no foreign keys, no `IN`, no `NOT`, and no aggregates beyond count. Kalypso adds encrypted search, encrypted counts and a relational layer on top of it. This page explains why those features belong in a library rather than in Arkiv itself, and what we do and don't claim.
 
 ## Short version
 
-arkivzk doesn't patch Arkiv or work around a missing feature. It **compiles** encrypted and relational queries down to primitives Arkiv already has:
+Kalypso doesn't patch Arkiv or work around a missing feature. It **compiles** encrypted and relational queries down to primitives Arkiv already has:
 - indexed equality
 - `OR`
 - `count()`
@@ -25,18 +25,18 @@ Nothing in Arkiv changes, and it all runs on Rabdi today. Every result on these 
 - Every node has to evaluate every query deterministically, at a bounded cost.
 - The docs list node limits on query length and nesting depth (`QueryError` kind `limits`), and the hosted RPC charges a flat quota per query.
 - JOINs and aggregates have unbounded cost on a public endpoint.
-- arkivzk keeps every query inside those limits: at most 18 OR terms per query, with batching and keyset paging.
+- Kalypso keeps every query inside those limits: at most 18 OR terms per query, with batching and keyset paging.
 
 **3. Leakage is a product decision.**
 - Each index leaks something: an equality tag shows equality within a month, a range tag shows approximate order, a foreign key shows siblings.
 - Whether that leak is acceptable depends on the app. A base layer can't pick it for every app.
-- arkivzk makes each index opt-in per field and documents what it leaks ([07 §5.4](07-performance.md#54-what-this-leaks-stated-plainly), [§6.3](07-performance.md#63-what-the-relational-tags-leak)).
+- Kalypso makes each index opt-in per field and documents what it leaks ([07 §5.4](07-performance.md#54-what-this-leaks-stated-plainly), [§6.3](07-performance.md#63-what-the-relational-tags-leak)).
 
 **4. Arkiv's own guidance assigns relations to apps.**
 - From the data-modeling skill: "the SDK does not enforce foreign keys, uniqueness or cascading deletion".
 - From the arkiv-graph package: "Relationships are application rules, not native joins".
 - The same guidance warns that children can outlive parents unless the app uses the parent's absolute deadline.
-- arkivzk implements exactly those rules ([07 §6](07-performance.md#6-relational-layer-on-encrypted-data)).
+- Kalypso implements exactly those rules ([07 §6](07-performance.md#6-relational-layer-on-encrypted-data)).
 
 ## Questions we expect, with straight answers
 

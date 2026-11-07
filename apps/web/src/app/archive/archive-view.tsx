@@ -40,7 +40,7 @@ export function ArchiveView() {
       {data && data.length === 0 && (
         <div className="nb-border border-dashed bg-[#fff] p-6 text-center">
           <p className="font-bold">The archive is empty.</p>
-          <p className="text-sm">Snapshots appear here once arkivzk transactions land on Arkiv.</p>
+          <p className="text-sm">Snapshots appear here once Kalypso transactions land on Arkiv.</p>
         </div>
       )}
 

@@ -1,6 +1,6 @@
 # Reach
 
-**Who is it for?** Builders on Arkiv who handle personal or regulated data: health records, KYC/eligibility, HR, private messages, anything covered by GDPR's right to erasure. Today they can't use a public DB-chain for it. arkivzk is a library (`@arkivzk/sdk`), not just an app, so any Arkiv project can adopt it.
+**Who is it for?** Builders on Arkiv who handle personal or regulated data: health records, KYC/eligibility, HR, private messages, anything covered by GDPR's right to erasure. Today they can't use a public DB-chain for it. Kalypso is a library (`@arkivzk/sdk`), not just an app, so any Arkiv project can adopt it.
 
 **Can they try it today?** Yes: the web app (vault → prove → verify → shred) runs against Arkiv Rabdi, and every proof and receipt has a public verify link anyone can open without a wallet.
 

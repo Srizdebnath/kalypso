@@ -7,7 +7,7 @@ export default async function DocsLayout({ children }: LayoutProps<"/docs">) {
   const docs = await listDocs();
   const groups = groupDocs([
     ...docs.map((d) => ({ href: `/docs/${d.slug}`, label: d.title, file: d.file })),
-    { href: "/docs/api", label: "API · arkivzk-client" },
+    { href: "/docs/api", label: "Client API" },
   ]);
   return (
     <div className="docs-light">

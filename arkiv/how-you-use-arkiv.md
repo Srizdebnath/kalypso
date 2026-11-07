@@ -1,6 +1,6 @@
 # How we use Arkiv
 
-| Arkiv feature | How arkivzk uses it | What the user sees |
+| Arkiv feature | How Kalypso uses it | What the user sees |
 |---|---|---|
 | **Typed schemas** (`defineSchema`) | 4 schemas: record, proof, vk, receipt ([schema.md](schema.md)) | – |
 | **Indexed attributes** | only what verifiers and owners filter on: `commitment`, `recordKey`, `vkHash`, `audience`, `claim`, `schemaId`, `epoch` | verify page, "proofs addressed to me", recovery |

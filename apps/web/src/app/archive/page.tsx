@@ -9,7 +9,7 @@ export default function ArchivePage() {
   return (
     <div className="mx-auto max-w-6xl px-4 py-10">
       <PageHeader kicker="break it · anyone can try" title="The old node runner's view" tone="yellow">
-        An archive indexer copies the raw calldata of every arkivzk transaction as it lands on
+        An archive indexer copies the raw calldata of every Kalypso transaction as it lands on
         Arkiv, the same way any node runner who keeps history would. Deleting an entity on Arkiv
         doesn&apos;t touch these copies. Pick one and try to decrypt it.
       </PageHeader>

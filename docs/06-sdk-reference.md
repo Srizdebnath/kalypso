@@ -208,7 +208,7 @@ await zk.put({...});   // $owner on Arkiv = a fresh address, funded by the share
 - Each record gets a fresh secp256k1 key. It's stored sealed inside `envId` (only your envSecret opens it), so you can still delete or extend the record after recovering on a new device.
 - Before each write the signer proves key possession to the relayer (signed message, 2-minute freshness, per-IP rate limit, 0.05 tGLM cap per top-up). The relayer tops it up just enough for that transaction's gas cap.
 - On-chain, every one-time signer is funded by the **same pool address**. The anonymity set is everyone using that relayer. The relayer operator sees the request IP.
-- Trade-off: k records with k different owners need k transactions for shred/renew. arkivzk sends them **in parallel**, so latency stays about one transaction, but fees are k×.
+- Trade-off: k records with k different owners need k transactions for shred/renew. Kalypso sends them **in parallel**, so latency stays about one transaction, but fees are k×.
 
 ## 8d. Blind-index search on encrypted fields
 
@@ -287,7 +287,7 @@ await zk.shred([patient.entityKey], onStep, { cascade: true });                 
 | `orphans` | O(R) | O(R) | ⌈P/20⌉ queries |
 | cascade shred / renew | O(tree) | O(tree) | depth queries + 1 tx per owner |
 
-Rules arkivzk enforces, because Arkiv leaves them to apps:
+Rules Kalypso enforces, because Arkiv leaves them to apps:
 - the parent must be live;
 - a child never outlives its parents;
 - at most 2 parents per row;

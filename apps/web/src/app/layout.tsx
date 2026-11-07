@@ -25,8 +25,8 @@ const jetbrainsMono = JetBrains_Mono({
 
 export const metadata: Metadata = {
   title: {
-    default: "arkivzk: private data on a public DB-chain",
-    template: "%s · arkivzk",
+    default: "Kalypso: private data on a public DB-chain",
+    template: "%s · Kalypso",
   },
   description:
     "Client-side encryption, zero-knowledge proofs and crypto-shredding for Arkiv.",

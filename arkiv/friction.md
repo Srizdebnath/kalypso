@@ -1,4 +1,4 @@
-# Arkiv friction log (written live while building arkivzk)
+# Arkiv friction log (written live while building Kalypso)
 
 Each entry: what we expected, what happened, how to reproduce.
 
@@ -27,5 +27,5 @@ Each entry: what we expected, what happened, how to reproduce.
 ## 5. `$key` filters reject plain hex strings at runtime only
 - **Expected:** `eq("$key", "0x…")` to work like other string filters, or a compile-time error.
 - **Happened:** it type-checks (with a cast) but throws at query time: `"$key" is a key, but the value is a str. System attributes have a fixed type — write key(...) around the value.` The message is clear, but our query layer only hit it on the first live run, inside `renew`. Same rule applies to `$owner`/`$creator` (`addr(...)`) and `$expiresAt` (`u64(...)`).
-- **Fix in arkivzk:** `liveKeys` and `QueryPlanner` now wrap system-field values (`key`, `addr`, `u64`) automatically, including keyset cursors (`gt("$key", key(cursor))`).
+- **Fix in Kalypso:** `liveKeys` and `QueryPlanner` now wrap system-field values (`key`, `addr`, `u64`) automatically, including keyset cursors (`gt("$key", key(cursor))`).
 - **Repro:** `pc.select({ $key: true }).where(eq("$key", "0x" + "00".repeat(32) as any)).fetch()`.

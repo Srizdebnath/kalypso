@@ -97,7 +97,7 @@ function ExportKit() {
           show passphrase
         </label>
         <div className="nb-border bg-[#eaeaea] p-3 text-sm">
-          <p className="font-bold">A kit is key material outside arkivzk&apos;s reach.</p>
+          <p className="font-bold">A kit is key material outside Kalypso&apos;s reach.</p>
           <p className="mt-1">
             Shredding a record can&apos;t delete copies of this file. If you shred later, destroy old
             kits too.

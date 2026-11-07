@@ -14,7 +14,7 @@ export default async function DocsIndex() {
   const docs = await listDocs();
   const groups = groupDocs([
     ...docs.map((d) => ({ href: `/docs/${d.slug}`, label: d.title, file: d.file })),
-    { href: "/docs/api", label: "API · arkivzk-client" },
+    { href: "/docs/api", label: "Client API" },
   ]);
 
   return (
@@ -22,7 +22,7 @@ export default async function DocsIndex() {
       <p className="mb-8 text-[0.8rem] text-[#8a8a8a]">Docs / Introduction</p>
       <h1 className="text-[2rem] font-semibold tracking-tight text-[#0a0a0a]">Introduction</h1>
       <p className="mt-4 leading-relaxed text-[#404040]">
-        arkivzk is a TypeScript library for Arkiv. It encrypts records on your device, keeps only ciphertext and commitments on-chain,
+        Kalypso is a TypeScript library for Arkiv. It encrypts records on your device, keeps only ciphertext and commitments on-chain,
         lets anyone verify zero-knowledge claims about the data, and erases it for good by destroying the keys. It also lets you search,
         count and join encrypted records using Arkiv&apos;s own index.
       </p>

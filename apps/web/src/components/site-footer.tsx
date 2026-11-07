@@ -89,14 +89,14 @@ export function SiteFooter() {
           className="font-display translate-y-[18%] text-center text-[14.5vw] leading-none font-bold tracking-[0.02em] text-transparent select-none"
           style={{ WebkitTextStroke: "1px rgb(255 255 255 / 0.18)", backgroundImage: "linear-gradient(180deg, rgb(255 255 255 / 0.10), transparent 80%)", WebkitBackgroundClip: "text", backgroundClip: "text" }}
         >
-          ARKIVZK
+          KALYPSO
         </p>
       </div>
 
       {/* bottom bar */}
       <div className="relative border-t border-white/10">
         <div className="mx-auto flex max-w-6xl flex-col gap-3 px-5 py-6 text-xs text-white/45 sm:flex-row sm:items-center sm:justify-between">
-          <p>© 2026 arkivzk · MIT · Built for ETHGlobal Mumbai, Arkiv track</p>
+          <p>© 2026 Kalypso · MIT · Built for ETHGlobal Mumbai, Arkiv track</p>
           <div className="flex items-center gap-4">
             <span>Research-grade, not audited</span>
             <BackToTop />

@@ -64,7 +64,7 @@ export default async function DocPage({ params }: PageProps<"/docs/[slug]">) {
           )}
           <Link href={next ? `/docs/${next.slug}` : "/docs/api"} className="rounded-lg border border-[#e5e5e5] p-4 text-right transition-colors hover:border-[#0a0a0a]">
             <span className="text-xs text-[#8a8a8a]">Next</span>
-            <span className="mt-1 block text-sm font-medium text-[#0a0a0a]">{next ? next.title : "API · arkivzk-client"} →</span>
+            <span className="mt-1 block text-sm font-medium text-[#0a0a0a]">{next ? next.title : "Client API"} →</span>
           </Link>
         </nav>
       </div>

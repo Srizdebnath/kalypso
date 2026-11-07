@@ -1,12 +1,12 @@
 import type { Metadata } from "next";
 import { Markdown } from "@/components/markdown";
 
-export const metadata: Metadata = { title: "API · arkivzk-client" };
+export const metadata: Metadata = { title: "Client API" };
 
 const API_MD = `
-# API · arkivzk-client
+# Client API
 
-Every screen of the web app talks to arkivzk through **one browser-side module**:
+Every screen of the web app talks to the Kalypso SDK through **one browser-side module**:
 \`apps/web/src/lib/arkivzk-client.ts\`. The UI imports nothing else from the library, so this file
 is the whole contract between the frontend and \`@arkivzk/sdk\` / the app's API routes.
 

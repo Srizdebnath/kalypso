@@ -1,4 +1,4 @@
-# Arkiv entities used by arkivzk
+# Arkiv entities used by Kalypso
 
 All entities carry `app = "arkivzk"` (indexed) so anyone can find them. Network: Rabdi, chain 7794095.
 

@@ -2,7 +2,7 @@
 
 This guide takes you from a fresh clone to a working vault on Arkiv's Rabdi testnet in about ten minutes. It covers running everything locally, a tour of the app, using the SDK from your own code, and fixes for the errors you are most likely to hit.
 
-> **What arkivzk is, in one line:** a TypeScript library that encrypts your data on your device, stores only ciphertext and commitments on Arkiv, lets you prove facts about it in zero knowledge, and erases it for good by destroying the keys.
+> **What Kalypso is, in one line:** a TypeScript library that encrypts your data on your device, stores only ciphertext and commitments on Arkiv, lets you prove facts about it in zero knowledge, and erases it for good by destroying the keys.
 
 ## What you need
 

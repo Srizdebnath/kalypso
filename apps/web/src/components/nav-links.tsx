@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { NAV_ITEMS } from "@/lib/nav";
 import { LogoMark, Wordmark } from "./site-header";
+import { KLogo } from "./logo";
 
 export function NavLinks() {
   const pathname = usePathname();
@@ -40,7 +41,7 @@ export function NavLinks() {
             : "max-w-6xl border-white/10 bg-white/[0.03] backdrop-blur-md"
         }`}
       >
-        <Link href="/" aria-label="arkivzk home" className="flex items-center gap-2.5 rounded-full py-1 pr-2">
+        <Link href="/" aria-label="Kalypso home" className="flex items-center gap-2.5 rounded-full py-1 pr-2">
           <LogoMark />
           <Wordmark />
         </Link>
@@ -131,11 +132,9 @@ function DocsBar({ pathname }: { pathname: string }) {
   return (
     <header className="sticky top-0 z-50 border-b border-[#ececec] bg-white/90 backdrop-blur">
       <div className="mx-auto flex h-14 max-w-7xl items-center justify-between gap-4 px-4">
-        <Link href="/" aria-label="arkivzk home" className="flex items-center gap-2">
-          <span className="grid h-6 w-6 place-items-center rounded-full bg-[#0a0a0a]">
-            <span className="h-1.5 w-1.5 rounded-full bg-[#fff]" />
-          </span>
-          <span className="font-display text-[0.8rem] font-bold tracking-[0.24em] text-[#0a0a0a]">ARKIVZK</span>
+        <Link href="/" aria-label="Kalypso home" className="flex items-center gap-2">
+          <KLogo className="h-5 w-5 text-[#0a0a0a]" />
+          <span className="font-display text-[0.8rem] font-bold tracking-[0.24em] text-[#0a0a0a]">KALYPSO</span>
           <span className="ml-1 rounded-md border border-[#e5e5e5] px-1.5 py-0.5 text-[0.65rem] font-medium text-[#737373]">docs</span>
         </Link>
         <div className="flex items-center gap-1">

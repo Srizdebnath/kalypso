@@ -2,7 +2,7 @@ import Link from "next/link";
 import { Reveal } from "@/components/motion";
 import { DEMO_PROOF } from "@/lib/live";
 
-const WORD = "ARKIVZK".split("");
+const WORD = "KALYPSO".split("");
 
 
 const PILLARS = [
@@ -138,7 +138,7 @@ export default function Home() {
         <Ring className="top-[-34vw] w-[118vw] sm:top-[-26vw] sm:w-[86vw] lg:top-[-330px] lg:w-[980px]" />
 
         <div className="relative z-10 flex w-full max-w-6xl flex-col items-center px-4">
-          <h1 aria-label="arkivzk" className="font-display flex w-full justify-between px-1 text-[13vw] leading-none font-bold text-white drop-shadow-[0_0_30px_rgb(164_164_164/0.6)] sm:text-[10vw] lg:text-[8.5rem]">
+          <h1 aria-label="Kalypso" className="font-display flex w-full justify-between px-1 text-[13vw] leading-none font-bold text-white drop-shadow-[0_0_30px_rgb(164_164_164/0.6)] sm:text-[10vw] lg:text-[8.5rem]">
             {WORD.map((c, i) => (
               <span key={i} aria-hidden style={{ animation: `letter-in 1.1s cubic-bezier(.2,.7,.2,1) ${150 + i * 90}ms both` }}>
                 {c}
@@ -150,7 +150,7 @@ export default function Home() {
             Private data on a public chain
           </p>
           <p className="mt-4 max-w-2xl text-center text-[#c0c0c0] sm:text-lg" style={{ animation: "fade-up 1s 1.05s both" }}>
-            On Arkiv, <code className="font-mono text-white">deleteEntity</code> only clears current state. arkivzk encrypts on your
+            On Arkiv, <code className="font-mono text-white">deleteEntity</code> only clears current state. Kalypso encrypts on your
             device, proves facts in zero knowledge, and makes deletion real by destroying the keys.
           </p>
           <div className="mt-8 flex flex-wrap justify-center gap-3" style={{ animation: "fade-up 1s 1.2s both" }}>
@@ -249,7 +249,7 @@ export default function Home() {
                   <tr className="text-left text-xs tracking-wider text-[#7a7a7a] uppercase">
                     <th className="px-6 py-4 font-medium">Query</th>
                     <th className="px-6 py-4 font-medium">Arkiv alone, on ciphertext</th>
-                    <th className="px-6 py-4 font-medium text-[#b9b9b9]">With arkivzk</th>
+                    <th className="px-6 py-4 font-medium text-[#b9b9b9]">With Kalypso</th>
                   </tr>
                 </thead>
                 <tbody>

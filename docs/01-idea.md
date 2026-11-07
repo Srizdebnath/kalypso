@@ -6,7 +6,7 @@ Arkiv is a great public data layer: cheap, queryable, expiring entities. But "pu
 blocks every serious use case with personal data: health, identity, finance, chats, HR, KYC.
 And GDPR-style "right to be forgotten" is impossible on a chain where old blocks live forever.
 
-**arkivzk** is a TypeScript library that sits between your app and `@arkiv-network/sdk`:
+**Kalypso** is a TypeScript library that sits between your app and `@arkiv-network/sdk`:
 
 - everything written is **encrypted on the client**,
 - everything useful about it is **provable in zero knowledge**,

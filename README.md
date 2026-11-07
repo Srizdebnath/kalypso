@@ -1,4 +1,8 @@
-# arkivzk
+# Kalypso
+
+<img src="apps/web/src/app/icon.svg" width="56" alt="Kalypso logo" />
+
+_Package and on-chain names stay `arkivzk` (`@arkivzk/sdk`, `app = "arkivzk"`), so existing records and receipts on Rabdi keep working._
 
 > Private-by-default data on a public-by-default database.
 > **ZK end-to-end** + **god-level crypto-shredding** for [Arkiv](https://docs.arkiv.network).
@@ -7,9 +11,9 @@ Arkiv stores everything in public: attributes, owner, creator, expiry, and the f
 history (calldata). `deleteEntity` only removes an entity from *current state*. Any node runner
 or archive indexer that synced the old blocks still holds the bytes forever.
 
-**arkivzk** fixes both problems from the client side, without changing Arkiv:
+**Kalypso** fixes both problems from the client side, without changing Arkiv:
 
-| Problem | arkivzk answer |
+| Problem | Kalypso answer |
 |---|---|
 | Data is public | Plaintext never leaves the user's device. Only ciphertext + commitments go on-chain. |
 | Need to *use* private data | ZK proofs over committed data: prove a fact (age > 18, balance in range, member of group, record unchanged) without revealing it. |
@@ -51,7 +55,7 @@ or archive indexer that synced the old blocks still holds the bytes forever.
 
 Full run (12 steps, all passed): `node packages/sdk/e2e.mjs`. Timings and gas: [docs/07 §4](docs/07-performance.md#4-measured-live-on-arkiv-rabdi).
 
-**Runnable query** (read-only, no wallet): lists arkivzk shred receipts and verifies each one's signatures.
+**Runnable query** (read-only, no wallet): lists Kalypso shred receipts and verifies each one's signatures.
 
 ```bash
 pnpm install && pnpm build

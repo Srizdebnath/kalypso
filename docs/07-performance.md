@@ -66,7 +66,7 @@ First proof in a fresh process also pays a one-time WASM + SRS setup cost (≈1�
 
 ### 3.1 Shred k records
 
-| | Before (naive) | After (arkivzk) |
+| | Before (naive) | After (Kalypso) |
 |---|---|---|
 | Arkiv transactions | k·(1+p) deletes + k receipt creates = k(2+p) txs | **1 atomic tx** |
 | Wallet confirmations | k(2+p) | **1** |
@@ -91,7 +91,7 @@ Example k=10, p=1: 30 txs → 1 tx. Reserved gas cap 30,000,000 → 12,600,000 (
 |---|---|---|
 | `$owner` of your records | your wallet (linkable) | fresh address per record, funded by shared pool |
 | Shred/renew of k records | 1 tx | k txs **in parallel** (≈1 tx latency, k× fees) |
-| Recovery lookup | `ownedBy(wallet)`: ⌈R/100⌉ queries | scan of arkivzk records: ⌈N/100⌉ queries (N = all arkivzk records) |
+| Recovery lookup | `ownedBy(wallet)`: ⌈R/100⌉ queries | scan of Kalypso records: ⌈N/100⌉ queries (N = all Kalypso records) |
 
 ### 3.2 Renew k records
 
@@ -164,7 +164,7 @@ Where the time goes: almost all of `put`/`prove`/`shred` is waiting for block in
 
 ---
 
-## 5. Queries: what Arkiv does, what it can't do on encrypted data, and what arkivzk adds
+## 5. Queries: what Arkiv does, what it can't do on encrypted data, and what Kalypso adds
 
 Sources: Arkiv [query language reference](https://docs.arkiv.network/reference/query-language) and [limits](https://docs.arkiv.network/reference/limits), SDK 1.0.1 declarations. Measured numbers below come from two live scripts on Rabdi:
 - `packages/sdk/query-live.mjs`, results in `docs/query-live.json`: the query planner on public metadata.
@@ -172,7 +172,7 @@ Sources: Arkiv [query language reference](https://docs.arkiv.network/reference/q
 
 ### 5.1 Capability matrix
 
-| Query | Arkiv on **plaintext** attributes | Arkiv on **encrypted** data (values are ciphertext in `bytes`) | arkivzk on encrypted data |
+| Query | Arkiv on **plaintext** attributes | Arkiv on **encrypted** data (values are ciphertext in `bytes`) | Kalypso on encrypted data |
 |---|---|---|---|
 | Equality `f = v` | ✅ `eq` on indexed column | ❌ `bytes` can't be indexed or filtered | ✅ blind index (`search`) |
 | Range `a ≤ f ≤ b` | ✅ `between/gt/lt` | ❌ | ✅ range index (`searchRange`), 0..255 domain |
@@ -189,7 +189,7 @@ Sources: Arkiv [query language reference](https://docs.arkiv.network/reference/q
 
 ### 5.2 Complexity before vs after, every query optimization
 
-`N` = arkivzk records of that schema, `k` = matching rows, `c` = keys in an `IN`, `E` = months (epochs) searched, `P` = 100 (page size), `|ct|` = ciphertext size (≥ 256 B padded, ≤ 120 KiB).
+`N` = Kalypso records of that schema, `k` = matching rows, `c` = keys in an `IN`, `E` = months (epochs) searched, `P` = 100 (page size), `|ct|` = ciphertext size (≥ 256 B padded, ≤ 120 KiB).
 
 | Optimization | Before: time / space / Arkiv queries | After: time / space / Arkiv queries | Measured on Rabdi (before → after) |
 |---|---|---|---|
@@ -242,11 +242,11 @@ Arkiv's own guidance, verbatim:
 - [arkiv-graph]: "Relationships are application rules, not native joins or foreign-key constraints".
 - The same data-modeling guidance warns that "related entities created later with the same relative lifetime can outlive their parents; use the parent's observed absolute deadline".
 
-So relations belong in the app layer. arkivzk implements them, and the keys never leave the client. Live check: `node packages/sdk/relational.mjs`, results in `docs/relational-bench.json`, every step asserted.
+So relations belong in the app layer. Kalypso implements them, and the keys never leave the client. Live check: `node packages/sdk/relational.mjs`, results in `docs/relational-bench.json`, every step asserted.
 
 ### 6.1 What maps to what
 
-| SQL / relational concept | arkivzk | On Arkiv |
+| SQL / relational concept | Kalypso | On Arkiv |
 |---|---|---|
 | `INSERT` several rows in one transaction | `putMany([...])` | one `execute` batch, so all rows succeed or none do (Arkiv batches are atomic) |
 | Foreign key (1:N) | `parents: [{ key, relation }]` | indexed `rel = HMAC(K_rel, relation‖parentRecordId)`: Arkiv can't tell which record is the parent |
@@ -266,7 +266,7 @@ So relations belong in the app layer. arkivzk implements them, and the keys neve
 
 `P` = parents, `k` = children/matches, `N` = all records, `d` = tree depth.
 
-| Operation | Before (plain Arkiv, encrypted values) | After (arkivzk) | Measured on Rabdi |
+| Operation | Before (plain Arkiv, encrypted values) | After (Kalypso) | Measured on Rabdi |
 |---|---|---|---|
 | Insert parent + children | k+1 txs; children can be created after the parent died; no atomicity | **1 tx**, all-or-nothing | 4 rows (patient, doctor, visit, lab): **1 tx**, 624,808 gas, 11.5 s |
 | Children of 1 parent | impossible without decrypting all N: O(N) | O(1) HMAC + 1 query, O(k) | 387 ms, 1 query |
