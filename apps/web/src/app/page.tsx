@@ -38,6 +38,34 @@ const PILLARS = [
       "Copies on old nodes remain, but there is no key left to open them.",
     ],
   },
+  {
+    n: "04",
+    title: "Query",
+    tone: "bg-violet",
+    lead: "A database on ciphertext.",
+    points: [
+      "Exact, range and COUNT queries on encrypted fields, evaluated by Arkiv on HMAC tags.",
+      "Blind foreign keys: 1:N, many-to-many, JOIN, cascade shred and renew.",
+      "Atomic multi-record inserts; a child never outlives its parent.",
+      "Query planner with explain(), IN-batching and keyset paging.",
+    ],
+  },
+];
+
+const QUERY_GAINS = [
+  ["Range on an encrypted field", "download + decrypt all: 3,034 ms", "1 query: 497 ms"],
+  ["COUNT on an encrypted field", "decrypt every record", "1 count query, 0 rows downloaded"],
+  ["Children of 5 parents (JOIN)", "5 queries: 1,826 ms", "1 query: 389 ms"],
+  ["Insert patient + doctor + visit + lab", "4 txs, not atomic", "1 atomic tx"],
+  ["Delete a parent and its children", "k+1 txs, found by scan", "1 tx, keys destroyed"],
+  ["Proofs of 45 records", "45 queries", "3 queries"],
+];
+
+const EXPLORER = "https://rabdi.explorer.arkiv.network";
+const LIVE = [
+  ["Wallet used for the live runs", "address", "0xBc670380edc8Ac07E91ca68cD6ac2Adf27881162"],
+  ["A shred receipt (guardian-signed)", "entity", "0x5257a663ad161985d8a85a10529de28a7982a97ee568bba65d0e73ba069b41fc"],
+  ["A month (epoch) shred receipt", "entity", "0xf309ad37f75fdf7c2996ee0d360c2c25af5c14abcf3b7ca65d7bde8dba15dfbf"],
 ];
 
 const FLOW = [
@@ -77,6 +105,10 @@ const LIMITS = [
     d: "A proof was true when it was made. Verifiers must check the record's shred status (this app does) and treat shredded records as revoked.",
   },
   {
+    t: "Search indexes leak patterns, by design.",
+    d: "Opt-in only. An equality tag shows which of your records in the same month share a value; a range tag shows approximate order within a month; a foreign key shows siblings. Values never leave your device.",
+  },
+  {
     t: "Malware on your device is out of scope.",
     d: "Encryption happens on your device, so whoever controls the device sees the plaintext.",
   },
@@ -87,7 +119,7 @@ export default function Home() {
     <div className="mx-auto max-w-6xl px-4">
       {/* HERO */}
       <section className="grid gap-10 py-14 md:grid-cols-[1.25fr_1fr] md:items-center md:py-20">
-        <div>
+        <div className="min-w-0">
           <div className="mb-5 flex flex-wrap gap-2">
             <Badge tone="yellow">TypeScript library</Badge>
             <Badge tone="white">for Arkiv DB-chain</Badge>
@@ -119,25 +151,27 @@ export default function Home() {
           </div>
         </div>
 
-        <div className="nb-card rotate-1 bg-ink p-0 text-paper">
+        <div className="nb-card min-w-0 rotate-1 bg-ink p-0 text-paper">
           <div className="flex items-center gap-2 border-b-[3px] border-paper/20 px-4 py-2 font-mono text-xs">
             <span className="h-3 w-3 border-2 border-paper bg-danger" />
             <span className="h-3 w-3 border-2 border-paper bg-yellow" />
             <span className="h-3 w-3 border-2 border-paper bg-lime" />
-            <span className="ml-2 opacity-70">target API</span>
+            <span className="ml-2 opacity-70">@arkivzk/sdk</span>
           </div>
           <pre className="overflow-x-auto p-4 font-mono text-[0.8rem] leading-relaxed">
             <code>
-              <span className="text-cyan">const</span> {"{ entityKey }"} ={"\n"}
-              {"  "}<span className="text-cyan">await</span> zk.<span className="text-yellow">put</span>(MedicalRecord, record){"\n\n"}
-              <span className="text-cyan">const</span> proof ={"\n"}
-              {"  "}<span className="text-cyan">await</span> zk.<span className="text-yellow">prove</span>(entityKey, <span className="text-lime">&quot;age&gt;=18&quot;</span>){"\n\n"}
+              <span className="text-cyan">const</span> {"{ entityKey }"} = <span className="text-cyan">await</span> zk.<span className="text-yellow">put</span>({"{"}{"\n"}
+              {"  "}schemaId: <span className="text-lime">&quot;medical.v1&quot;</span>, values: {"{ age: 25 }"},{"\n"}
+              {"  "}rangeField: <span className="text-lime">&quot;age&quot;</span>, retentionSeconds{"\n"}
+              {"}"}){"\n\n"}
+              <span className="text-paper/50">{"// zero-knowledge claim, published on Arkiv"}</span>{"\n"}
+              <span className="text-cyan">await</span> zk.<span className="text-yellow">prove</span>(entityKey, {"{ field: "}<span className="text-lime">&quot;age&quot;</span>{", min: 18 }"}, nonce){"\n\n"}
               <span className="text-paper/50">{"// anyone, no key needed"}</span>{"\n"}
-              <span className="text-cyan">const</span> ok ={"\n"}
-              {"  "}<span className="text-cyan">await</span> ArkivZK.<span className="text-yellow">verify</span>(entityKey, proof){"\n\n"}
-              <span className="text-paper/50">{"// gone for everyone"}</span>{"\n"}
-              <span className="text-cyan">const</span> receipt ={"\n"}
-              {"  "}<span className="text-cyan">await</span> zk.<span className="text-pink">shred</span>(entityKey)
+              <span className="text-cyan">await</span> <span className="text-yellow">verifyProofEntity</span>(publicClient, proofKey){"\n\n"}
+              <span className="text-paper/50">{"// Arkiv filters ciphertext tags, never values"}</span>{"\n"}
+              <span className="text-cyan">await</span> zk.<span className="text-yellow">searchRange</span>(<span className="text-lime">&quot;medical.v1&quot;</span>, <span className="text-lime">&quot;age&quot;</span>, 18, 40){"\n\n"}
+              <span className="text-paper/50">{"// gone for everyone, children too"}</span>{"\n"}
+              <span className="text-cyan">await</span> zk.<span className="text-pink">shred</span>([entityKey], onStep, {"{ cascade: true }"})
             </code>
           </pre>
         </div>
@@ -145,8 +179,8 @@ export default function Home() {
 
       {/* PILLARS */}
       <section className="py-10">
-        <h2 className="mb-8 text-3xl font-bold md:text-4xl">Three pillars</h2>
-        <div className="grid gap-6 md:grid-cols-3">
+        <h2 className="mb-8 text-3xl font-bold md:text-4xl">Four pillars</h2>
+        <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-4">
           {PILLARS.map((p) => (
             <article key={p.title} className="nb-card flex flex-col p-0">
               <header className={`${p.tone} border-b-[3px] border-ink p-5`}>
@@ -217,13 +251,14 @@ export default function Home() {
         <Card tone="violet">
           <h2 className="text-2xl font-bold">Proof numbers</h2>
           <p className="mt-1 text-xs font-bold uppercase tracking-wide">
-            Measured in Node on a laptop
+            Measured on a laptop (Node, warm)
           </p>
           <dl className="mt-5 space-y-4">
             {[
-              ["≈1–4 s", "proof generation"],
-              ["≈14.6 KB", "proof size"],
-              ["≈3.7 KB", "verification key"],
+              ["0.4–0.6 s", "proof generation"],
+              ["15 ms", "verification"],
+              ["14.6 KB", "proof size"],
+              ["3.7 KB", "verification key (stored once)"],
             ].map(([v, k]) => (
               <div key={k} className="nb-border flex items-baseline justify-between gap-3 bg-white p-3">
                 <dt className="text-sm font-medium">{k}</dt>
@@ -232,9 +267,76 @@ export default function Home() {
             ))}
           </dl>
           <p className="mt-4 text-xs">
-            Browser timings will differ by device. The app shows the real time for every proof it makes.
+            The first proof in a fresh tab also loads the WASM prover. In our browser run, proving plus publishing
+            the proof on Arkiv took about 30 s, mostly waiting for the transaction.
           </p>
         </Card>
+      </section>
+
+      {/* QUERY */}
+      <section className="py-10">
+        <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
+          <div className="max-w-2xl">
+            <h2 className="text-3xl font-bold md:text-4xl">Query it like a database</h2>
+            <p className="mt-2">
+              Arkiv can&apos;t filter, count or join values it can&apos;t read, so we never ask it to. arkivzk turns each
+              query into equality checks on HMAC tags that Arkiv&apos;s own index can answer. Measured live on Rabdi,
+              same results as decrypting everything.
+            </p>
+          </div>
+          <Link href="/docs/07-performance#5-queries-what-arkiv-does-what-it-cant-do-on-encrypted-data-and-what-arkivzk-adds" className="nb-btn bg-violet">
+            Full comparison →
+          </Link>
+        </div>
+        <div className="nb-card overflow-x-auto p-0">
+          <table className="w-full min-w-[36rem] text-sm">
+            <thead>
+              <tr className="bg-ink text-left text-paper">
+                <th className="p-3">Query</th>
+                <th className="p-3">Arkiv alone, on encrypted data</th>
+                <th className="p-3">arkivzk</th>
+              </tr>
+            </thead>
+            <tbody>
+              {QUERY_GAINS.map(([q, before, after]) => (
+                <tr key={q} className="border-t-[3px] border-ink">
+                  <td className="p-3 font-bold">{q}</td>
+                  <td className="p-3 font-mono text-xs">{before}</td>
+                  <td className="bg-lime/60 p-3 font-mono text-xs font-bold">{after}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      {/* LIVE */}
+      <section className="py-10">
+        <div className="nb-card p-6 md:p-8">
+          <div className="flex flex-wrap items-center gap-3">
+            <h2 className="text-2xl font-bold md:text-3xl">Live on Arkiv Rabdi</h2>
+            <Badge tone="lime">chain 7794095</Badge>
+          </div>
+          <p className="mt-2 max-w-3xl text-sm">
+            Every flow on this site ran against the real testnet. Open these in the explorer, or run{" "}
+            <code className="font-mono font-bold">node packages/sdk/e2e.mjs</code> yourself.
+          </p>
+          <ul className="mt-5 space-y-3">
+            {LIVE.map(([label, kind, value]) => (
+              <li key={value} className="nb-border flex flex-col gap-1 bg-paper p-3 sm:flex-row sm:items-center sm:justify-between">
+                <span className="text-sm font-bold">{label}</span>
+                <a
+                  href={`${EXPLORER}/${kind}/${value}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="break-all font-mono text-xs underline decoration-2"
+                >
+                  {value}
+                </a>
+              </li>
+            ))}
+          </ul>
+        </div>
       </section>
 
       {/* WHY FAST */}
@@ -256,14 +358,14 @@ export default function Home() {
       {/* LIMITS */}
       <section id="limits" className="py-10">
         <div className="nb-card bg-yellow p-6 md:p-8">
-          <h2 className="text-3xl font-bold md:text-4xl">Honest limits</h2>
+          <h2 className="text-3xl font-bold md:text-4xl">Limits</h2>
           <p className="mt-2 max-w-3xl">
             What arkivzk does <strong>not</strong> protect against. This is a hackathon build: the
             code is not audited.
           </p>
           <div className="mt-6 grid gap-4 md:grid-cols-2">
             {LIMITS.map((l) => (
-              <div key={l.t} className="nb-border bg-white p-4">
+              <div key={l.t} className="nb-border bg-white p-4 md:last:odd:col-span-2">
                 <h3 className="font-bold">{l.t}</h3>
                 <p className="mt-1 text-sm">{l.d}</p>
               </div>

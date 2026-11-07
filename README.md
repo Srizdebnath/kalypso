@@ -29,7 +29,7 @@ or archive indexer that synced the old blocks still holds the bytes forever.
 | Lease manager (renew data + keys together, reminders, expiry erasure) | ✅ implemented |
 | Query planner (pushdown, projections, IN-batching, keyset, explain) | ✅ implemented |
 | Archive node indexer (raw calldata capture) | ✅ implemented, captures live Rabdi traffic |
-| Encrypted attachments on Swarm | ✅ implemented, needs a Bee node + postage batch to run |
+| Encrypted attachments on Swarm | ✅ implemented, checked in the browser against a local Bee cluster (`fdp-play`): Swarm holds only ciphertext, the image decrypts on device |
 | Recovery kit (lost device) | ✅ implemented, tested |
 | Ephemeral per-record signers + gas relayer (records unlinkable to your wallet) | ✅ implemented |
 | Two-level keys: collection (schema × month) key + record key; epoch & account shred | ✅ implemented |
@@ -60,6 +60,16 @@ ARKIV_ACCESS_KEY=<your key> node packages/sdk/query-receipts.mjs
 ```ts
 pc.select({ $key: true, $owner: true, recordKey: true, level: true, shreddedAt: true })
   .from(ShredReceipt).where(eq("app", "arkivzk")).limit(10).fetch()
+```
+
+### Run Swarm attachments locally
+
+```bash
+npx @fairdatasociety/fdp-play start --fresh --detach      # local Bee cluster on :1633 (Docker)
+curl -s -X POST localhost:1633/stamps/100000000/20       # buy a postage batch, copy batchID
+# apps/web/.env.local
+BEE_URL=http://127.0.0.1:1633
+SWARM_POSTAGE_BATCH_ID=<batchID>
 ```
 
 ## Read in this order

@@ -327,3 +327,8 @@ pre,
 code {
   font-variant-ligatures: none;
 }
+
+/* long hashes/addresses in inline code must wrap on small screens */
+.prose-nb :not(pre) > code {
+  overflow-wrap: anywhere;
+}

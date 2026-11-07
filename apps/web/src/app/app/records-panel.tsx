@@ -51,6 +51,7 @@ export function RecordsPanel({
 
   const [renewSel, setRenewSel] = useState<Set<string>>(new Set());
   const [search, setSearch] = useState<SearchResult | null>(null);
+  const [showShredded, setShowShredded] = useState(false);
   const barRef = useRef<HTMLDivElement>(null);
   const renewable = (data ?? []).filter((r) => r.status === "live");
   const chosen = renewable.filter((r) => renewSel.has(r.entityKey)).map((r) => r.entityKey);
@@ -120,17 +121,27 @@ export function RecordsPanel({
         </p>
       )}
 
+      {data && data.some((r) => r.status === "shredded" && !r.pendingShred) && (
+        <label className="mb-3 flex w-fit cursor-pointer items-center gap-2 font-mono text-xs font-bold">
+          <input type="checkbox" className="h-4 w-4 accent-black" checked={showShredded} onChange={() => setShowShredded((v) => !v)} />
+          show shredded records ({data.filter((r) => r.status === "shredded" && !r.pendingShred).length})
+        </label>
+      )}
+
       {loading && !data && <Loading label="Loading records" />}
       {error && <ErrorBox title="Could not load records" error={error} onRetry={reload} />}
-      {data && data.length === 0 && (
+      {data && (data.length === 0 || (!showShredded && !search && data.every((r) => r.status === "shredded" && !r.pendingShred))) && (
         <div className="nb-border border-dashed bg-white p-6 text-center">
-          <p className="font-bold">No records yet.</p>
+          <p className="font-bold">{data.length === 0 ? "No records yet." : "No live records."}</p>
           <p className="text-sm">Create one with the form.</p>
         </div>
       )}
       {data && data.length > 0 && (
         <ul className="space-y-3">
-          {data.filter((r) => !search || search.keys.has(r.entityKey)).map((r) => {
+          {data
+            .filter((r) => !search || search.keys.has(r.entityKey))
+            .filter((r) => showShredded || r.status !== "shredded" || r.pendingShred)
+            .map((r) => {
             const exp = expiryLabel(r, now);
             const urgent = expiresWithin(r, now, DAY);
             const live = r.status === "live";
@@ -200,6 +211,7 @@ export function RecordsPanel({
                   </div>
                 )}
 
+                {r.status !== "shredded" && (
                 <div className="mt-3 flex flex-wrap gap-2">
                   {live && data.some((x) => x.parents.some((p) => p.entityKey === r.entityKey)) && (
                     <ChildrenButton
@@ -212,7 +224,7 @@ export function RecordsPanel({
                     size="sm"
                     tone="cyan"
                     onClick={() => onSelect(r.entityKey)}
-                    disabled={r.status === "shredded" || r.pendingShred}
+                    disabled={r.pendingShred}
                   >
                     View
                   </Button>
@@ -234,7 +246,6 @@ export function RecordsPanel({
                   <Button
                     size="sm"
                     tone="lime"
-                    disabled={r.status === "shredded"}
                     onClick={() => {
                       setFocusRecord(r.entityKey);
                       router.push("/app/shred");
@@ -243,6 +254,10 @@ export function RecordsPanel({
                     Shred
                   </Button>
                 </div>
+                )}
+                {r.status === "shredded" && !r.pendingShred && (
+                  <p className="mt-2 font-mono text-xs">Keys destroyed. The ciphertext left in old blocks can&apos;t be opened.</p>
+                )}
               </li>
             );
           })}

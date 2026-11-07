@@ -236,7 +236,7 @@ export function ProveView() {
               <li>You get a link. Anyone can open it and verify without a wallet or key.</li>
             </ol>
             <p className="mt-3 text-xs">
-              Proving takes seconds. In Node on a laptop we measured ≈1–4 s; the real time is shown below.
+              Proving itself takes well under a second once the prover is loaded (0.4–0.6 s in Node). The first proof in a tab also loads the WASM prover, and publishing waits for an Arkiv transaction. The real time is shown below.
             </p>
           </Card>
         )}
